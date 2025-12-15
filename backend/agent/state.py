@@ -2,114 +2,79 @@
 Agent State Definition
 
 Defines the state that flows through the LangGraph agent.
+Enhanced with support for CRAG pattern, parallel execution, and structured analysis.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, TypedDict, Any
 
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
 
-class QueryType(str, Enum):
-    """Types of queries the agent can handle."""
-
-    HISTORICAL_ANALYSIS = "historical_analysis"  # Past race analysis
-    WHAT_IF_SIMULATION = "what_if_simulation"  # Hypothetical scenarios
-    LIVE_INSIGHTS = "live_insights"  # Recent/current race insights
-    GENERAL_KNOWLEDGE = "general_knowledge"  # F1 rules, history, etc.
-    COMPARISON = "comparison"  # Driver/team comparisons
-    UNKNOWN = "unknown"
-
-
-class ResponseType(str, Enum):
-    """Types of responses the agent can generate."""
-
-    TEXT = "text"  # Plain text response
-    CHART = "chart"  # Visualization needed
-    TABLE = "table"  # Tabular data
-    MIXED = "mixed"  # Combination of above
-
-
-@dataclass
-class QueryContext:
-    """Extracted context from user query."""
-
-    drivers: list[str] = field(default_factory=list)
-    teams: list[str] = field(default_factory=list)
-    races: list[str] = field(default_factory=list)
-    seasons: list[int] = field(default_factory=list)
-    metrics: list[str] = field(default_factory=list)  # lap_time, tire_deg, etc.
-    time_range: str | None = None
-
-
-@dataclass
-class RetrievedData:
-    """Data retrieved from various sources."""
-
-    timescale_data: list[dict] = field(default_factory=list)
-    neo4j_data: list[dict] = field(default_factory=list)
-    vector_data: list[dict] = field(default_factory=list)
-    source_metadata: dict = field(default_factory=dict)
-
-
-class AgentState:
+class EnhancedAgentState(TypedDict):
     """
-    State that flows through the LangGraph agent.
+    Enhanced state dictionary for the F1 Race Intelligence Agent.
 
-    Uses TypedDict pattern for LangGraph compatibility.
+    Supports the new architecture:
+    UNDERSTAND → PLAN → EXECUTE → PROCESS → EVALUATE → GENERATE
+
+    With CRAG (Corrective RAG) pattern for looping back to PLAN
+    if data is insufficient.
     """
-
-    pass
-
-
-# LangGraph requires TypedDict for state
-from typing import TypedDict
-
-
-class AgentStateDict(TypedDict):
-    """State dictionary for LangGraph."""
 
     # Conversation history (uses add_messages reducer for appending)
     messages: Annotated[list[BaseMessage], add_messages]
 
-    # Query understanding
-    query_type: QueryType
-    query_context: dict  # Serialized QueryContext
-    confidence: float
+    # UNDERSTAND node output
+    query_understanding: dict  # Serialized QueryUnderstanding schema
 
-    # Retrieved data
-    retrieved_data: dict  # Serialized RetrievedData
+    # PLAN node output
+    data_plan: dict  # Serialized DataPlan schema
 
-    # Response generation
-    response_type: ResponseType
-    analysis_result: str
-    visualization_spec: dict | None  # Chart specification if needed
+    # EXECUTE node output
+    raw_data: dict  # Tool results keyed by tool_id
+
+    # PROCESS node output
+    processed_analysis: dict  # Serialized ProcessedAnalysis schema
+
+    # EVALUATE node output
+    evaluation: dict  # Serialized EvaluationResult schema
+    evaluation_feedback: str  # Feedback for PLAN node if looping
+
+    # GENERATE node output
+    analysis_result: str  # Final text response
+    visualization_spec: dict | None  # Chart specification
+    response_type: str  # "TEXT", "CHART", "MIXED"
 
     # Metadata
     session_id: str
     user_id: str | None
-    iteration_count: int
+    iteration_count: int  # For CRAG loop limit
     error: str | None
 
 
 def create_initial_state(
     session_id: str,
     user_id: str | None = None,
-) -> AgentStateDict:
-    """Create initial agent state."""
-    return AgentStateDict(
+) -> EnhancedAgentState:
+    """Create initial agent state for a new session."""
+    return EnhancedAgentState(
         messages=[],
-        query_type=QueryType.UNKNOWN,
-        query_context={},
-        confidence=0.0,
-        retrieved_data={},
-        response_type=ResponseType.TEXT,
+        query_understanding={},
+        data_plan={},
+        raw_data={},
+        processed_analysis={},
+        evaluation={},
+        evaluation_feedback="",
         analysis_result="",
         visualization_spec=None,
+        response_type="TEXT",
         session_id=session_id,
         user_id=user_id,
         iteration_count=0,
         error=None,
     )
+
+
+# Keep old state for backwards compatibility
+AgentStateDict = EnhancedAgentState

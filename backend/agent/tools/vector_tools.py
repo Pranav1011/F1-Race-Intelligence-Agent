@@ -2,45 +2,31 @@
 Vector Search Tools
 
 Tools for semantic search over race reports, regulations, and past analyses.
+Uses the RAG service with hybrid search (semantic + keyword).
 """
 
 import logging
-from typing import Any
 
 from langchain_core.tools import tool
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
 
 logger = logging.getLogger(__name__)
 
-# Client instance (initialized at startup)
-_client: QdrantClient | None = None
-_embedder = None  # Embedding model
+# RAG service instance (initialized at startup)
+_rag_service = None
 
 
-def init_client(host: str, port: int):
-    """Initialize the Qdrant client."""
-    global _client
-    _client = QdrantClient(host=host, port=port, check_compatibility=False)
-    logger.info(f"Qdrant tool client initialized for {host}:{port}")
+async def init_rag(host: str = "qdrant", port: int = 6333):
+    """Initialize the RAG service."""
+    global _rag_service
+    from agent.rag.service import RAGService
+    _rag_service = RAGService(qdrant_host=host, qdrant_port=port)
+    _rag_service.initialize()
+    logger.info(f"RAG service initialized for {host}:{port}")
 
 
-def init_embedder(model_name: str = "BAAI/bge-base-en-v1.5"):
-    """Initialize the embedding model."""
-    global _embedder
-    try:
-        from sentence_transformers import SentenceTransformer
-        _embedder = SentenceTransformer(model_name)
-        logger.info(f"Embedder initialized with {model_name}")
-    except Exception as e:
-        logger.warning(f"Failed to initialize embedder: {e}")
-
-
-def _embed_text(text: str) -> list[float]:
-    """Embed text using the configured embedder."""
-    if _embedder is None:
-        raise RuntimeError("Embedder not initialized")
-    return _embedder.encode(text).tolist()
+def get_rag_service():
+    """Get the RAG service instance."""
+    return _rag_service
 
 
 @tool
@@ -64,61 +50,18 @@ async def search_race_reports(
     Returns:
         Relevant article excerpts with source information
     """
-    if not _client or not _embedder:
-        return [{"error": "Vector search not initialized"}]
+    if not _rag_service:
+        return [{"error": "RAG service not initialized"}]
 
     try:
-        # Build filter conditions
-        filter_conditions = []
-
-        if race_id:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="race_id",
-                    match=models.MatchValue(value=race_id),
-                )
-            )
-
-        if season:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="season",
-                    match=models.MatchValue(value=season),
-                )
-            )
-
-        if drivers:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="drivers",
-                    match=models.MatchAny(any=drivers),
-                )
-            )
-
-        query_filter = None
-        if filter_conditions:
-            query_filter = models.Filter(must=filter_conditions)
-
-        # Embed query and search
-        query_vector = _embed_text(query)
-
-        results = _client.search(
-            collection_name="race_reports",
-            query_vector=query_vector,
-            query_filter=query_filter,
+        results = await _rag_service.search_race_context(
+            query=query,
+            race_id=race_id,
+            season=season,
+            drivers=drivers,
             limit=limit,
         )
-
-        return [
-            {
-                "content": hit.payload.get("content", ""),
-                "source": hit.payload.get("source", ""),
-                "url": hit.payload.get("url", ""),
-                "race_id": hit.payload.get("race_id", ""),
-                "score": hit.score,
-            }
-            for hit in results
-        ]
+        return results
 
     except Exception as e:
         logger.error(f"Error searching race reports: {e}")
@@ -144,50 +87,34 @@ async def search_reddit_discussions(
     Returns:
         Relevant discussion excerpts with community engagement metrics
     """
-    if not _client or not _embedder:
-        return [{"error": "Vector search not initialized"}]
+    if not _rag_service:
+        return [{"error": "RAG service not initialized"}]
 
     try:
-        filter_conditions = []
-
+        # Build filters for Reddit-specific search
+        filters = {}
         if race_id:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="race_id",
-                    match=models.MatchValue(value=race_id),
-                )
-            )
-
+            filters["race_id"] = race_id
         if min_score:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="score",
-                    range=models.Range(gte=min_score),
-                )
-            )
+            filters["min_score"] = min_score
 
-        query_filter = None
-        if filter_conditions:
-            query_filter = models.Filter(must=filter_conditions)
-
-        query_vector = _embed_text(query)
-
-        results = _client.search(
-            collection_name="reddit_discussions",
-            query_vector=query_vector,
-            query_filter=query_filter,
+        # Use hybrid search on reddit_discussions collection
+        result = await _rag_service.hybrid_search(
+            query=query,
+            collection="reddit_discussions",
             limit=limit,
+            filters=filters if filters else None,
         )
 
         return [
             {
-                "content": hit.payload.get("content", ""),
-                "post_id": hit.payload.get("post_id", ""),
-                "score": hit.payload.get("score", 0),
-                "quality_score": hit.payload.get("quality_score", 0),
-                "relevance_score": hit.score,
+                "content": r.content,
+                "post_id": r.metadata.get("post_id", ""),
+                "score": r.metadata.get("score", 0),
+                "quality_score": r.metadata.get("quality_score", 0),
+                "relevance_score": r.score,
             }
-            for hit in results
+            for r in result.results
         ]
 
     except Exception as e:
@@ -214,52 +141,17 @@ async def search_regulations(
     Returns:
         Relevant regulation excerpts with article references
     """
-    if not _client or not _embedder:
-        return [{"error": "Vector search not initialized"}]
+    if not _rag_service:
+        return [{"error": "RAG service not initialized"}]
 
     try:
-        filter_conditions = []
-
-        if document_type:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="document_type",
-                    match=models.MatchValue(value=document_type),
-                )
-            )
-
-        if year:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="year",
-                    match=models.MatchValue(value=year),
-                )
-            )
-
-        query_filter = None
-        if filter_conditions:
-            query_filter = models.Filter(must=filter_conditions)
-
-        query_vector = _embed_text(query)
-
-        results = _client.search(
-            collection_name="regulations",
-            query_vector=query_vector,
-            query_filter=query_filter,
+        results = await _rag_service.search_regulations(
+            query=query,
+            document_type=document_type,
+            year=year,
             limit=limit,
         )
-
-        return [
-            {
-                "content": hit.payload.get("content", ""),
-                "document_type": hit.payload.get("document_type", ""),
-                "section": hit.payload.get("section", ""),
-                "article_number": hit.payload.get("article_number", ""),
-                "year": hit.payload.get("year", ""),
-                "score": hit.score,
-            }
-            for hit in results
-        ]
+        return results
 
     except Exception as e:
         logger.error(f"Error searching regulations: {e}")
@@ -283,43 +175,16 @@ async def search_past_analyses(
     Returns:
         Similar past analyses that might inform the current response
     """
-    if not _client or not _embedder:
-        return [{"error": "Vector search not initialized"}]
+    if not _rag_service:
+        return [{"error": "RAG service not initialized"}]
 
     try:
-        filter_conditions = []
-
-        if query_type:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="query_type",
-                    match=models.MatchValue(value=query_type),
-                )
-            )
-
-        query_filter = None
-        if filter_conditions:
-            query_filter = models.Filter(must=filter_conditions)
-
-        query_vector = _embed_text(query)
-
-        results = _client.search(
-            collection_name="past_analyses",
-            query_vector=query_vector,
-            query_filter=query_filter,
+        results = await _rag_service.search_similar_analyses(
+            query=query,
+            query_type=query_type,
             limit=limit,
         )
-
-        return [
-            {
-                "original_query": hit.payload.get("query", ""),
-                "analysis": hit.payload.get("content", ""),
-                "query_type": hit.payload.get("query_type", ""),
-                "drivers": hit.payload.get("drivers", []),
-                "score": hit.score,
-            }
-            for hit in results
-        ]
+        return results
 
     except Exception as e:
         logger.error(f"Error searching past analyses: {e}")
@@ -347,35 +212,18 @@ async def store_analysis(
     Returns:
         Storage confirmation
     """
-    if not _client or not _embedder:
-        return {"error": "Vector search not initialized"}
+    if not _rag_service:
+        return {"error": "RAG service not initialized"}
 
     try:
-        import uuid
-        from datetime import datetime
-
-        # Embed the query for future similarity search
-        query_vector = _embed_text(query)
-
-        point = models.PointStruct(
-            id=str(uuid.uuid4()),
-            vector=query_vector,
-            payload={
-                "query": query,
-                "content": analysis,
-                "query_type": query_type,
-                "drivers": drivers or [],
-                "race_id": race_id,
-                "created_at": datetime.utcnow().isoformat(),
-            },
+        doc_id = await _rag_service.store_analysis(
+            query=query,
+            analysis=analysis,
+            query_type=query_type,
+            drivers=drivers,
+            race_id=race_id,
         )
-
-        _client.upsert(
-            collection_name="past_analyses",
-            points=[point],
-        )
-
-        return {"status": "stored", "id": point.id}
+        return {"status": "stored", "id": doc_id}
 
     except Exception as e:
         logger.error(f"Error storing analysis: {e}")

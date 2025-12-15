@@ -72,6 +72,10 @@ async def chat(message: ChatMessage):
             user_id=message.user_id,
         )
 
+        # Build visualization list from visualization spec
+        viz_spec = result.get("visualization")
+        visualizations = [viz_spec] if viz_spec else []
+
         return ChatResponse(
             content=result.get("message", ""),
             session_id=session_id,
@@ -79,7 +83,7 @@ async def chat(message: ChatMessage):
             response_type=str(result.get("response_type", "text")),
             confidence=result.get("confidence", 0.0),
             error=result.get("error"),
-            visualizations=[],
+            visualizations=visualizations,
         )
 
     except Exception as e:

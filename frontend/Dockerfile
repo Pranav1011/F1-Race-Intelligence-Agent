@@ -7,14 +7,11 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Copy dependency files first (for better caching)
-COPY package.json pnpm-lock.yaml* ./
+# Copy all application code first
+COPY . .
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile || pnpm install
-
-# Copy application code
-COPY . .
+RUN pnpm install
 
 # Expose port
 EXPOSE 3000

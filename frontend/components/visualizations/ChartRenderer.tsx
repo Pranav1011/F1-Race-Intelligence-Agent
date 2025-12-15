@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import {
   LineChart,
   Line,
@@ -17,6 +18,12 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Visualization } from '@/types'
+import {
+  TireStrategy,
+  GapEvolution,
+  PositionBattle,
+  SectorHeatmap,
+} from './f1'
 
 interface ChartRendererProps {
   visualization: Visualization
@@ -35,7 +42,7 @@ const CHART_COLORS = [
 ]
 
 export function ChartRenderer({ visualization }: ChartRendererProps) {
-  const { type, data, config, title } = visualization
+  const { type, data, config, title, drivers } = visualization
 
   if (!data || data.length === 0) {
     return (
@@ -183,6 +190,46 @@ export function ChartRenderer({ visualization }: ChartRendererProps) {
           </div>
         )
 
+      // F1-specific chart types using Visx
+      case 'tire_strategy':
+        return (
+          <TireStrategy
+            data={data as any}
+            title={title}
+            maxLaps={config?.maxLaps}
+          />
+        )
+
+      case 'gap_evolution':
+        return (
+          <GapEvolution
+            data={data as any}
+            drivers={drivers || []}
+            title={title}
+            colors={config?.colors as Record<string, string>}
+          />
+        )
+
+      case 'position_battle':
+        return (
+          <PositionBattle
+            data={data as any}
+            drivers={drivers || []}
+            title={title}
+            colors={config?.colors as Record<string, string>}
+            highlightOvertakes={config?.highlightOvertakes ?? true}
+          />
+        )
+
+      case 'sector_heatmap':
+        return (
+          <SectorHeatmap
+            data={data as any}
+            title={title}
+            showDelta={config?.showDelta}
+          />
+        )
+
       default:
         return (
           <div className="flex items-center justify-center h-64 bg-bg-secondary rounded-xl">
@@ -192,12 +239,20 @@ export function ChartRenderer({ visualization }: ChartRendererProps) {
     }
   }
 
+  // F1 charts handle their own responsive sizing
+  const isF1Chart = [
+    'tire_strategy',
+    'gap_evolution',
+    'position_battle',
+    'sector_heatmap',
+  ].includes(type)
+
   return (
     <div className="w-full">
-      {title && (
+      {!isF1Chart && title && (
         <h4 className="text-white font-medium mb-4">{title}</h4>
       )}
-      {type === 'table' ? (
+      {type === 'table' || isF1Chart ? (
         renderChart()
       ) : (
         <ResponsiveContainer width="100%" height={400}>

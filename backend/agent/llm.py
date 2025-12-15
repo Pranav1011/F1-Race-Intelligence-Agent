@@ -10,17 +10,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from langchain_community.chat_models import ChatOllama
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
-from langchain_openai import ChatOpenAI  # DeepSeek uses OpenAI-compatible API
-from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.chat_models import ChatOllama
+from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI  # DeepSeek uses OpenAI-compatible API
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ class LLMConfig:
     # Groq (fast backup - free tier)
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
+    groq_fast_model: str = "llama-3.1-8b-instant"  # Fast planning model
 
     # Gemini (backup - free tier)
     google_api_key: str | None = None
@@ -72,12 +73,17 @@ class LLMRouter:
     Routes LLM requests through fallback chain.
 
     Priority: DeepSeek -> Groq -> Gemini -> Ollama
+
+    Supports two-stage routing:
+    - Stage 1 (Planning): Fast 8B model for query understanding and tool selection
+    - Stage 2 (Analysis): Capable 70B model for reasoning over retrieved data
     """
 
     def __init__(self, config: LLMConfig | None = None):
         """Initialize the LLM router."""
         self.config = config or LLMConfig()
         self._providers: dict[LLMProvider, BaseChatModel | None] = {}
+        self._fast_providers: dict[LLMProvider, BaseChatModel | None] = {}  # Fast models for planning
         self._initialize_providers()
         self._current_provider: LLMProvider | None = None
 
@@ -104,6 +110,7 @@ class LLMRouter:
         # Groq (fast backup)
         if self.config.groq_api_key:
             try:
+                # Main capable model (70B)
                 self._providers[LLMProvider.GROQ] = ChatGroq(
                     api_key=self.config.groq_api_key,
                     model=self.config.groq_model,
@@ -111,12 +118,23 @@ class LLMRouter:
                     max_tokens=self.config.max_tokens,
                 )
                 logger.info(f"Groq initialized with model {self.config.groq_model}")
+
+                # Fast planning model (8B) - for two-stage routing
+                self._fast_providers[LLMProvider.GROQ] = ChatGroq(
+                    api_key=self.config.groq_api_key,
+                    model=self.config.groq_fast_model,
+                    temperature=0.3,  # Lower temp for planning
+                    max_tokens=1024,  # Shorter responses for planning
+                )
+                logger.info(f"Groq fast model initialized: {self.config.groq_fast_model}")
             except Exception as e:
                 logger.warning(f"Failed to initialize Groq: {e}")
                 self._providers[LLMProvider.GROQ] = None
+                self._fast_providers[LLMProvider.GROQ] = None
         else:
             logger.info("Groq API key not provided, skipping")
             self._providers[LLMProvider.GROQ] = None
+            self._fast_providers[LLMProvider.GROQ] = None
 
         # Gemini (backup)
         if self.config.google_api_key:
@@ -282,6 +300,97 @@ class LLMRouter:
     def current_provider(self) -> LLMProvider | None:
         """Get the currently active provider."""
         return self._current_provider
+
+    def get_fast_llm(self, provider: LLMProvider | None = None) -> BaseChatModel:
+        """
+        Get a fast LLM instance for planning/routing tasks.
+
+        Uses smaller, faster models (e.g., 8B instead of 70B) for:
+        - Query understanding
+        - Tool selection
+        - Data filtering decisions
+
+        Args:
+            provider: Specific provider to use, or None for auto-selection
+
+        Returns:
+            Fast LLM instance
+        """
+        if provider and self._fast_providers.get(provider):
+            return self._fast_providers[provider]
+
+        # Auto-select - prefer Groq for fastest inference
+        for p in [LLMProvider.GROQ, LLMProvider.GEMINI]:
+            if self._fast_providers.get(p):
+                return self._fast_providers[p]
+
+        # Fallback to main providers if no fast models available
+        return self.get_llm(provider)
+
+    async def ainvoke_fast(
+        self,
+        messages: list[BaseMessage],
+        **kwargs: Any,
+    ) -> BaseMessage:
+        """
+        Invoke fast LLM for planning tasks.
+
+        Use this for:
+        - Understanding what data is needed
+        - Selecting which tools to call
+        - Quick classification tasks
+
+        Args:
+            messages: Messages to send to LLM
+            **kwargs: Additional arguments
+
+        Returns:
+            LLM response message
+        """
+        providers = [LLMProvider.GROQ, LLMProvider.GEMINI]
+
+        for provider in providers:
+            if self._fast_providers.get(provider):
+                try:
+                    llm = self._fast_providers[provider]
+                    logger.debug(f"Fast invoke with: {provider.value}")
+                    response = await llm.ainvoke(messages, **kwargs)
+                    return response
+                except Exception as e:
+                    logger.warning(f"Fast invoke failed for {provider.value}: {e}")
+                    continue
+
+        # Fallback to regular invoke
+        logger.info("No fast models available, using regular invoke")
+        return await self.ainvoke(messages, **kwargs)
+
+    async def two_stage_invoke(
+        self,
+        planning_messages: list[BaseMessage],
+        analysis_messages: list[BaseMessage],
+        **kwargs: Any,
+    ) -> tuple[BaseMessage, BaseMessage]:
+        """
+        Two-stage LLM invocation for optimal speed and quality.
+
+        Stage 1: Fast model plans what data is needed
+        Stage 2: Capable model analyzes the data
+
+        Args:
+            planning_messages: Messages for stage 1 (planning)
+            analysis_messages: Messages for stage 2 (analysis)
+            **kwargs: Additional arguments
+
+        Returns:
+            Tuple of (planning_response, analysis_response)
+        """
+        # Stage 1: Fast planning
+        planning_response = await self.ainvoke_fast(planning_messages, **kwargs)
+
+        # Stage 2: Deep analysis
+        analysis_response = await self.ainvoke(analysis_messages, **kwargs)
+
+        return planning_response, analysis_response
 
 
 def create_llm_router(

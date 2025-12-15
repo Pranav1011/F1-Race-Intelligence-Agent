@@ -2,6 +2,7 @@
 TimescaleDB Tools
 
 Tools for querying F1 telemetry, lap times, and weather data from TimescaleDB.
+Includes Redis caching for fast repeated queries.
 """
 
 import logging
@@ -9,6 +10,8 @@ from typing import Any
 
 import asyncpg
 from langchain_core.tools import tool
+
+from db.cache import cached, cache_get, cache_set, _generate_cache_key, CACHE_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -415,8 +418,852 @@ async def get_available_sessions(
         return [{"error": str(e)}]
 
 
+# ============================================================
+# FAST TOOLS (using materialized views)
+# ============================================================
+
+@tool
+async def get_head_to_head(
+    driver_1: str,
+    driver_2: str,
+    year: int | None = None,
+    event_name: str | None = None,
+) -> list[dict]:
+    """
+    Get pre-computed head-to-head comparison between two drivers.
+    FAST: Uses materialized view + Redis cache for instant results.
+
+    Args:
+        driver_1: First driver abbreviation (e.g., "VER")
+        driver_2: Second driver abbreviation (e.g., "HAM")
+        year: Filter by season year
+        event_name: Filter by race name (partial match)
+
+    Returns:
+        List of race-by-race comparisons with pace delta, sector deltas
+    """
+    if not _pool:
+        return [{"error": "Database connection not initialized"}]
+
+    # Normalize driver order (alphabetical in materialized view)
+    d1, d2 = sorted([driver_1.upper(), driver_2.upper()])
+
+    # Check cache first
+    cache_key = _generate_cache_key("head_to_head", d1=d1, d2=d2, year=year, event=event_name)
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        logger.debug(f"Cache HIT: head_to_head {d1} vs {d2}")
+        return cached
+
+    try:
+        query = """
+            SELECT
+                year,
+                event_name,
+                driver_1,
+                driver_2,
+                driver_1_pace,
+                driver_2_pace,
+                pace_delta,
+                driver_1_fastest,
+                driver_2_fastest,
+                fastest_delta,
+                s1_delta,
+                s2_delta,
+                s3_delta,
+                comparable_laps
+            FROM mv_head_to_head
+            WHERE driver_1 = $1 AND driver_2 = $2
+        """
+        params = [d1, d2]
+        param_idx = 3
+
+        if year:
+            query += f" AND year = ${param_idx}"
+            params.append(year)
+            param_idx += 1
+
+        if event_name:
+            query += f" AND event_name ILIKE ${param_idx}"
+            params.append(f"%{event_name}%")
+            param_idx += 1
+
+        query += " ORDER BY year, event_name"
+
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            result = [dict(row) for row in rows]
+
+        # Cache the result
+        await cache_set(cache_key, result, CACHE_TTL["head_to_head"])
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting head-to-head: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+async def get_driver_season_summary(
+    driver_id: str,
+    year: int,
+) -> dict:
+    """
+    Get season summary for a driver including all race stats.
+    FAST: Uses materialized views + Redis cache for instant results.
+
+    Args:
+        driver_id: Driver abbreviation (e.g., "VER")
+        year: Season year
+
+    Returns:
+        Season statistics including wins, podiums, average pace by race
+    """
+    if not _pool:
+        return {"error": "Database connection not initialized"}
+
+    driver = driver_id.upper()
+
+    # Check cache first
+    cache_key = _generate_cache_key("driver_season", driver=driver, year=year)
+    cached_result = await cache_get(cache_key)
+    if cached_result is not None:
+        logger.debug(f"Cache HIT: driver_season {driver} {year}")
+        return cached_result
+
+    try:
+        # Get standings
+        standings_query = """
+            SELECT * FROM mv_season_standings
+            WHERE year = $1 AND driver_id = $2
+        """
+
+        # Get race-by-race summary
+        races_query = """
+            SELECT
+                event_name,
+                circuit,
+                total_laps,
+                fastest_lap,
+                avg_lap_time,
+                consistency,
+                total_stints,
+                best_position
+            FROM mv_driver_race_summary
+            WHERE year = $1 AND driver_id = $2
+            ORDER BY round_number
+        """
+
+        async with _pool.acquire() as conn:
+            standings = await conn.fetchrow(standings_query, year, driver)
+            races = await conn.fetch(races_query, year, driver)
+
+            result = {
+                "standings": dict(standings) if standings else None,
+                "races": [dict(row) for row in races],
+            }
+
+        # Cache the result
+        await cache_set(cache_key, result, CACHE_TTL["driver_season"])
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting driver season summary: {e}")
+        return {"error": str(e)}
+
+
+@tool
+async def get_race_summary(
+    year: int,
+    event_name: str | None = None,
+    round_number: int | None = None,
+) -> list[dict]:
+    """
+    Get race statistics summary.
+    FAST: Uses materialized view + Redis cache for instant results.
+
+    Args:
+        year: Season year
+        event_name: Race name (partial match)
+        round_number: Round number
+
+    Returns:
+        Race statistics including winner, fastest lap, avg pace
+    """
+    if not _pool:
+        return [{"error": "Database connection not initialized"}]
+
+    # Check cache first
+    cache_key = _generate_cache_key("race_summary", year=year, event=event_name, round=round_number)
+    cached_result = await cache_get(cache_key)
+    if cached_result is not None:
+        logger.debug(f"Cache HIT: race_summary {year}")
+        return cached_result
+
+    try:
+        query = """
+            SELECT * FROM mv_race_statistics
+            WHERE year = $1
+        """
+        params = [year]
+        param_idx = 2
+
+        if event_name:
+            query += f" AND event_name ILIKE ${param_idx}"
+            params.append(f"%{event_name}%")
+            param_idx += 1
+
+        if round_number:
+            query += f" AND round_number = ${param_idx}"
+            params.append(round_number)
+            param_idx += 1
+
+        query += " ORDER BY round_number"
+
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            result = [dict(row) for row in rows]
+
+        # Cache the result
+        await cache_set(cache_key, result, CACHE_TTL["race_summary"])
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting race summary: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+async def get_stint_analysis(
+    year: int,
+    event_name: str,
+    driver_id: str | None = None,
+) -> list[dict]:
+    """
+    Get detailed stint analysis for a race.
+    FAST: Uses materialized view + Redis cache for instant results.
+
+    Args:
+        year: Season year
+        event_name: Race name (partial match)
+        driver_id: Optional driver filter
+
+    Returns:
+        Stint data with compound, laps, pace, degradation
+    """
+    if not _pool:
+        return [{"error": "Database connection not initialized"}]
+
+    driver = driver_id.upper() if driver_id else None
+
+    # Check cache first
+    cache_key = _generate_cache_key("stint_analysis", year=year, event=event_name, driver=driver)
+    cached_result = await cache_get(cache_key)
+    if cached_result is not None:
+        logger.debug(f"Cache HIT: stint_analysis {year} {event_name}")
+        return cached_result
+
+    try:
+        query = """
+            SELECT
+                driver_id,
+                stint,
+                compound,
+                start_lap,
+                end_lap,
+                stint_laps,
+                avg_pace,
+                best_lap,
+                max_tire_age,
+                estimated_degradation
+            FROM mv_stint_summary
+            WHERE year = $1 AND event_name ILIKE $2
+        """
+        params = [year, f"%{event_name}%"]
+
+        if driver:
+            query += " AND driver_id = $3"
+            params.append(driver)
+
+        query += " ORDER BY driver_id, stint"
+
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            result = [dict(row) for row in rows]
+
+        # Cache the result
+        await cache_set(cache_key, result, CACHE_TTL["stint_analysis"])
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting stint analysis: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+async def get_season_standings(
+    year: int,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Get championship standings for a season.
+    FAST: Uses materialized view + Redis cache for instant results.
+
+    Args:
+        year: Season year
+        limit: Number of drivers to return
+
+    Returns:
+        Championship standings with points, wins, podiums
+    """
+    if not _pool:
+        return [{"error": "Database connection not initialized"}]
+
+    # Check cache first
+    cache_key = _generate_cache_key("season_standings", year=year, limit=limit)
+    cached_result = await cache_get(cache_key)
+    if cached_result is not None:
+        logger.debug(f"Cache HIT: season_standings {year}")
+        return cached_result
+
+    try:
+        query = """
+            SELECT
+                driver_id,
+                driver_name,
+                team,
+                races,
+                total_points,
+                wins,
+                podiums,
+                points_finishes,
+                avg_position,
+                best_finish
+            FROM mv_season_standings
+            WHERE year = $1
+            ORDER BY total_points DESC
+            LIMIT $2
+        """
+
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(query, year, limit)
+            result = [dict(row) for row in rows]
+
+        # Cache the result
+        await cache_set(cache_key, result, CACHE_TTL["season_standings"])
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting standings: {e}")
+        return [{"error": str(e)}]
+
+
+# ============================================================
+# TEXT-TO-SQL TOOL (Flexible Queries)
+# ============================================================
+
+# SQL validation patterns
+ALLOWED_SQL_PATTERNS = [
+    "SELECT",
+]
+
+BLOCKED_SQL_PATTERNS = [
+    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE",
+    "GRANT", "REVOKE", "EXECUTE", "COPY", "VACUUM", "REINDEX",
+    "--", ";--", "/*", "*/", "@@", "@",
+]
+
+# Database schema documentation for LLM
+DATABASE_SCHEMA = """
+Available Tables:
+
+1. lap_times (time-series lap data)
+   - session_id: VARCHAR (e.g., "2024_1_R" = 2024 Round 1 Race)
+   - driver_id: VARCHAR (3-letter code, e.g., "VER", "HAM")
+   - lap_number: INT
+   - lap_time_seconds: FLOAT (total lap time)
+   - sector_1_seconds: FLOAT
+   - sector_2_seconds: FLOAT
+   - sector_3_seconds: FLOAT
+   - compound: VARCHAR (SOFT, MEDIUM, HARD, INTERMEDIATE, WET)
+   - tire_life: INT (laps on current tire set)
+   - stint: INT (pit stop number, 1 = first stint)
+   - position: INT (track position at end of lap)
+   - team: VARCHAR
+
+2. sessions (race weekend sessions)
+   - session_id: VARCHAR (primary key)
+   - year: INT
+   - round_number: INT
+   - event_name: VARCHAR (e.g., "Bahrain Grand Prix")
+   - session_type: VARCHAR (R=Race, Q=Quali, FP1/FP2/FP3=Practice, S=Sprint)
+   - circuit: VARCHAR
+   - session_date: TIMESTAMP
+
+3. results (final race/quali results)
+   - session_id: VARCHAR
+   - driver_id: VARCHAR
+   - driver_name: VARCHAR (full name)
+   - team: VARCHAR
+   - position: INT (finishing position)
+   - grid_position: INT (starting position)
+   - status: VARCHAR (Finished, +1 Lap, Retired, etc.)
+   - points: FLOAT
+   - fastest_lap_time: FLOAT
+
+4. weather (track conditions)
+   - session_id: VARCHAR
+   - time: TIMESTAMP
+   - air_temp: FLOAT (Celsius)
+   - track_temp: FLOAT (Celsius)
+   - humidity: FLOAT (percentage)
+   - wind_speed: FLOAT (m/s)
+   - wind_direction: INT (degrees)
+   - rainfall: BOOLEAN
+
+Materialized Views (pre-aggregated, fast):
+- mv_driver_race_summary: Per-driver, per-race aggregated stats
+- mv_race_statistics: Race summaries with winner, fastest lap
+- mv_head_to_head: Pre-computed driver pair comparisons
+- mv_stint_summary: Stint analysis with degradation estimates
+- mv_season_standings: Championship standings by year
+- mv_lap_percentiles: Lap time percentiles for outlier detection
+
+Common Patterns:
+- Filter races: WHERE session_id LIKE '2024%' AND session_type = 'R'
+- Filter valid laps: WHERE lap_time_seconds > 60 AND lap_time_seconds < 200
+- Join for race info: JOIN sessions s ON l.session_id = s.session_id
+"""
+
+
+def _validate_sql(sql: str) -> tuple[bool, str]:
+    """Validate SQL query for safety."""
+    sql_upper = sql.upper().strip()
+
+    # Must start with SELECT
+    if not sql_upper.startswith("SELECT"):
+        return False, "Only SELECT queries are allowed"
+
+    # Check for blocked patterns
+    for pattern in BLOCKED_SQL_PATTERNS:
+        if pattern.upper() in sql_upper:
+            return False, f"Query contains blocked pattern: {pattern}"
+
+    # Check for multiple statements
+    if sql.count(";") > 1:
+        return False, "Multiple statements not allowed"
+
+    return True, "OK"
+
+
+@tool
+async def query_f1_database(
+    sql_query: str,
+    explanation: str = "",
+) -> dict:
+    """
+    Execute a custom SQL query against the F1 database.
+    Use this for complex queries that can't be answered by other tools.
+
+    IMPORTANT: Only SELECT queries are allowed. Include LIMIT to avoid huge results.
+
+    Args:
+        sql_query: The SQL SELECT query to execute. Must include LIMIT clause.
+        explanation: Brief explanation of what this query does (for logging).
+
+    Database Schema:
+    - lap_times: session_id, driver_id, lap_number, lap_time_seconds, sector_1/2/3_seconds, compound, tire_life, stint, position, team
+    - sessions: session_id, year, round_number, event_name, session_type (R/Q/FP1/FP2/FP3/S), circuit, session_date
+    - results: session_id, driver_id, driver_name, team, position, grid_position, status, points
+    - weather: session_id, time, air_temp, track_temp, humidity, wind_speed, rainfall
+
+    Session ID format: "{year}_{round}_{type}" e.g., "2024_1_R" = 2024 Bahrain Race
+
+    Example queries:
+    - "SELECT driver_id, COUNT(*) as wins FROM results WHERE position = 1 GROUP BY driver_id ORDER BY wins DESC LIMIT 10"
+    - "SELECT driver_id, AVG(lap_time_seconds) as avg_pace FROM lap_times WHERE session_id = '2024_1_R' AND lap_time_seconds > 60 GROUP BY driver_id"
+
+    Returns:
+        Query results as list of dicts, or error message
+    """
+    if not _pool:
+        return {"error": "Database connection not initialized", "rows": []}
+
+    # Validate the query
+    is_valid, message = _validate_sql(sql_query)
+    if not is_valid:
+        return {"error": message, "rows": []}
+
+    # Ensure LIMIT is present (add default if missing)
+    if "LIMIT" not in sql_query.upper():
+        sql_query = sql_query.rstrip(";") + " LIMIT 100"
+
+    try:
+        logger.info(f"Text-to-SQL query: {explanation or 'No explanation'}")
+        logger.debug(f"SQL: {sql_query}")
+
+        async with _pool.acquire() as conn:
+            # Set statement timeout (10 seconds max)
+            await conn.execute("SET statement_timeout = '10s'")
+
+            rows = await conn.fetch(sql_query)
+            result = [dict(row) for row in rows]
+
+            return {
+                "success": True,
+                "row_count": len(result),
+                "rows": result,
+                "query": sql_query,
+            }
+
+    except asyncpg.exceptions.QueryCanceledError:
+        return {"error": "Query timed out (>10 seconds). Try adding more filters or LIMIT.", "rows": []}
+    except Exception as e:
+        logger.error(f"Text-to-SQL error: {e}")
+        return {"error": str(e), "rows": []}
+
+
+@tool
+async def get_database_schema() -> str:
+    """
+    Get the F1 database schema documentation.
+    Use this to understand available tables and columns before writing SQL queries.
+
+    Returns:
+        Detailed schema documentation with table structures and common patterns.
+    """
+    return DATABASE_SCHEMA
+
+
+# ============================================================
+# STRATEGY SIMULATOR (What-If Scenarios)
+# ============================================================
+
+@tool
+async def simulate_pit_strategy(
+    session_id: str,
+    driver_id: str,
+    actual_pit_laps: list[int] | None = None,
+    alternative_pit_laps: list[int] = [],
+    alternative_compounds: list[str] = [],
+) -> dict:
+    """
+    Simulate alternative pit strategy and estimate the outcome.
+    Answers "what if" questions like "What if Max pitted on lap 20 instead of 25?"
+
+    Args:
+        session_id: Race session ID (e.g., "2024_1_R")
+        driver_id: Driver to simulate (e.g., "VER")
+        actual_pit_laps: Override actual pit laps (auto-detected if None)
+        alternative_pit_laps: New pit lap numbers to simulate
+        alternative_compounds: Compounds for each stint (e.g., ["MEDIUM", "HARD", "SOFT"])
+
+    Returns:
+        Simulation results with estimated time delta and position impact
+    """
+    if not _pool:
+        return {"error": "Database connection not initialized"}
+
+    driver = driver_id.upper()
+
+    try:
+        async with _pool.acquire() as conn:
+            # Get actual race data for the driver
+            lap_data = await conn.fetch("""
+                SELECT
+                    lap_number, lap_time_seconds, compound, tire_life, stint, position
+                FROM lap_times
+                WHERE session_id = $1 AND driver_id = $2
+                    AND lap_time_seconds > 60 AND lap_time_seconds < 200
+                ORDER BY lap_number
+            """, session_id, driver)
+
+            if not lap_data:
+                return {"error": f"No lap data found for {driver} in {session_id}"}
+
+            laps = [dict(row) for row in lap_data]
+            total_laps = max(l["lap_number"] for l in laps)
+
+            # Detect actual pit stops
+            if actual_pit_laps is None:
+                actual_pit_laps = []
+                for i in range(1, len(laps)):
+                    if laps[i]["stint"] != laps[i-1]["stint"]:
+                        actual_pit_laps.append(laps[i]["lap_number"])
+
+            # Get tire degradation rates by compound
+            deg_rates = await conn.fetch("""
+                SELECT
+                    compound,
+                    AVG(lap_time_seconds) as avg_pace,
+                    -- Estimate deg as difference between avg of last 5 vs first 5 laps per stint
+                    STDDEV(lap_time_seconds) as pace_variance
+                FROM lap_times
+                WHERE session_id = $1
+                    AND lap_time_seconds > 60 AND lap_time_seconds < 200
+                GROUP BY compound
+            """, session_id)
+
+            compound_pace = {row["compound"]: row["avg_pace"] for row in deg_rates}
+
+            # Estimate pit stop time loss
+            PIT_STOP_LOSS = 23.0  # seconds (typical pit stop delta)
+
+            # Calculate actual race time
+            actual_time = sum(l["lap_time_seconds"] for l in laps if l["lap_time_seconds"])
+            actual_pits = len(actual_pit_laps)
+
+            # Simulate alternative strategy
+            if not alternative_pit_laps:
+                return {
+                    "driver": driver,
+                    "session_id": session_id,
+                    "actual_pit_laps": actual_pit_laps,
+                    "actual_pit_count": actual_pits,
+                    "actual_total_time": actual_time,
+                    "total_laps": total_laps,
+                    "message": "Provide alternative_pit_laps to simulate a different strategy",
+                    "compound_avg_pace": compound_pace,
+                }
+
+            # Build stint structure for alternative strategy
+            alt_pit_laps = sorted(alternative_pit_laps)
+            alt_stints = []
+            prev_lap = 1
+
+            for i, pit_lap in enumerate(alt_pit_laps + [total_laps + 1]):
+                stint_start = prev_lap
+                stint_end = pit_lap - 1 if pit_lap <= total_laps else total_laps
+                stint_length = stint_end - stint_start + 1
+
+                # Get compound for this stint
+                compound = alternative_compounds[i] if i < len(alternative_compounds) else "MEDIUM"
+                compound = compound.upper()
+
+                # Estimate stint time using compound pace + degradation model
+                base_pace = compound_pace.get(compound, 95.0)
+
+                # Simple degradation model: pace degrades ~0.05s per lap on tires
+                DEG_RATES = {"SOFT": 0.08, "MEDIUM": 0.05, "HARD": 0.03, "INTERMEDIATE": 0.04, "WET": 0.02}
+                deg_rate = DEG_RATES.get(compound, 0.05)
+
+                stint_time = 0
+                for lap_in_stint in range(stint_length):
+                    lap_time = base_pace + (lap_in_stint * deg_rate)
+                    stint_time += lap_time
+
+                alt_stints.append({
+                    "stint": i + 1,
+                    "start_lap": stint_start,
+                    "end_lap": stint_end,
+                    "length": stint_length,
+                    "compound": compound,
+                    "estimated_time": round(stint_time, 3),
+                })
+
+                prev_lap = pit_lap + 1
+
+            # Calculate alternative total time
+            alt_race_time = sum(s["estimated_time"] for s in alt_stints)
+            alt_pit_time = len(alt_pit_laps) * PIT_STOP_LOSS
+            alt_total_time = alt_race_time + alt_pit_time
+
+            # Compare to actual
+            time_delta = alt_total_time - actual_time
+
+            # Estimate position change (~0.3s per position in midfield)
+            SECONDS_PER_POSITION = 0.5
+            estimated_position_change = -round(time_delta / SECONDS_PER_POSITION)
+
+            return {
+                "driver": driver,
+                "session_id": session_id,
+                "simulation": {
+                    "alternative_pit_laps": alt_pit_laps,
+                    "alternative_compounds": [s["compound"] for s in alt_stints],
+                    "stints": alt_stints,
+                    "estimated_race_time": round(alt_race_time, 3),
+                    "pit_stop_time_loss": round(alt_pit_time, 3),
+                    "estimated_total_time": round(alt_total_time, 3),
+                },
+                "comparison": {
+                    "actual_pit_laps": actual_pit_laps,
+                    "actual_total_time": round(actual_time, 3),
+                    "time_delta": round(time_delta, 3),
+                    "delta_description": f"{'+' if time_delta > 0 else ''}{time_delta:.3f}s vs actual",
+                    "estimated_position_change": estimated_position_change,
+                    "position_description": f"{'Gain' if estimated_position_change > 0 else 'Lose'} ~{abs(estimated_position_change)} position(s)" if estimated_position_change != 0 else "Similar position",
+                },
+                "assumptions": {
+                    "pit_stop_loss": PIT_STOP_LOSS,
+                    "degradation_model": "Linear approximation based on compound",
+                    "note": "This is a simplified simulation. Real outcomes depend on traffic, safety cars, and competitor strategies.",
+                },
+            }
+
+    except Exception as e:
+        logger.error(f"Strategy simulation error: {e}")
+        return {"error": str(e)}
+
+
+@tool
+async def find_similar_race_scenarios(
+    scenario_description: str,
+    year: int | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    Find historical races with similar scenarios for what-if analysis.
+    Use this to find precedents for strategy questions.
+
+    Args:
+        scenario_description: Description of the scenario (e.g., "early pit stop undercut", "wet to dry transition", "safety car restart")
+        year: Optional year filter
+        limit: Maximum results to return
+
+    Returns:
+        List of similar historical scenarios with outcomes
+    """
+    if not _pool:
+        return [{"error": "Database connection not initialized"}]
+
+    # Map common scenarios to SQL patterns
+    scenario_lower = scenario_description.lower()
+
+    try:
+        async with _pool.acquire() as conn:
+            results = []
+
+            # Scenario: Undercut (driver pits early and gains position)
+            if "undercut" in scenario_lower or "early pit" in scenario_lower:
+                query = """
+                    WITH stint_changes AS (
+                        SELECT
+                            l1.session_id,
+                            l1.driver_id,
+                            l1.lap_number as pit_lap,
+                            l1.position as pos_before,
+                            l2.position as pos_after,
+                            s.year,
+                            s.event_name
+                        FROM lap_times l1
+                        JOIN lap_times l2 ON l1.session_id = l2.session_id
+                            AND l1.driver_id = l2.driver_id
+                            AND l2.lap_number = l1.lap_number + 3
+                        JOIN sessions s ON l1.session_id = s.session_id
+                        WHERE l1.stint != (SELECT stint FROM lap_times WHERE session_id = l1.session_id AND driver_id = l1.driver_id AND lap_number = l1.lap_number + 1 LIMIT 1)
+                            AND l2.position < l1.position
+                            AND s.session_type = 'R'
+                    )
+                    SELECT * FROM stint_changes
+                    WHERE ($1::int IS NULL OR year = $1)
+                    ORDER BY pos_before - pos_after DESC
+                    LIMIT $2
+                """
+                rows = await conn.fetch(query, year, limit)
+                results = [{
+                    "scenario": "Undercut success",
+                    "session": f"{row['year']} {row['event_name']}",
+                    "driver": row["driver_id"],
+                    "pit_lap": row["pit_lap"],
+                    "positions_gained": row["pos_before"] - row["pos_after"],
+                } for row in rows]
+
+            # Scenario: One-stop vs two-stop
+            elif "one stop" in scenario_lower or "two stop" in scenario_lower:
+                query = """
+                    SELECT
+                        s.year,
+                        s.event_name,
+                        l.driver_id,
+                        MAX(l.stint) as num_stops,
+                        r.position as finish_position
+                    FROM lap_times l
+                    JOIN sessions s ON l.session_id = s.session_id
+                    JOIN results r ON l.session_id = r.session_id AND l.driver_id = r.driver_id
+                    WHERE s.session_type = 'R'
+                        AND ($1::int IS NULL OR s.year = $1)
+                    GROUP BY s.year, s.event_name, l.driver_id, l.session_id, r.position
+                    HAVING MAX(l.stint) IN (1, 2)
+                    ORDER BY r.position
+                    LIMIT $2
+                """
+                rows = await conn.fetch(query, year, limit)
+                results = [{
+                    "scenario": f"{'One-stop' if row['num_stops'] == 1 else 'Two-stop'} strategy",
+                    "session": f"{row['year']} {row['event_name']}",
+                    "driver": row["driver_id"],
+                    "pit_stops": row["num_stops"] - 1,
+                    "finish_position": row["finish_position"],
+                } for row in rows]
+
+            # Scenario: Position gains from start
+            elif "gained" in scenario_lower or "positions" in scenario_lower or "overtake" in scenario_lower:
+                query = """
+                    SELECT
+                        s.year,
+                        s.event_name,
+                        r.driver_id,
+                        r.grid_position,
+                        r.position as finish_position,
+                        r.grid_position - r.position as positions_gained
+                    FROM results r
+                    JOIN sessions s ON r.session_id = s.session_id
+                    WHERE s.session_type = 'R'
+                        AND r.grid_position > r.position
+                        AND ($1::int IS NULL OR s.year = $1)
+                    ORDER BY positions_gained DESC
+                    LIMIT $2
+                """
+                rows = await conn.fetch(query, year, limit)
+                results = [{
+                    "scenario": "Positions gained",
+                    "session": f"{row['year']} {row['event_name']}",
+                    "driver": row["driver_id"],
+                    "started": f"P{row['grid_position']}",
+                    "finished": f"P{row['finish_position']}",
+                    "positions_gained": row["positions_gained"],
+                } for row in rows]
+
+            # Default: Return top race results
+            else:
+                query = """
+                    SELECT
+                        s.year,
+                        s.event_name,
+                        r.driver_id,
+                        r.position,
+                        r.points
+                    FROM results r
+                    JOIN sessions s ON r.session_id = s.session_id
+                    WHERE s.session_type = 'R'
+                        AND r.position <= 3
+                        AND ($1::int IS NULL OR s.year = $1)
+                    ORDER BY s.year DESC, s.round_number DESC
+                    LIMIT $2
+                """
+                rows = await conn.fetch(query, year, limit)
+                results = [{
+                    "scenario": "Podium finish",
+                    "session": f"{row['year']} {row['event_name']}",
+                    "driver": row["driver_id"],
+                    "position": row["position"],
+                    "points": row["points"],
+                } for row in rows]
+
+            if not results:
+                return [{"message": f"No matching scenarios found for: {scenario_description}"}]
+
+            return results
+
+    except Exception as e:
+        logger.error(f"Similar scenarios search error: {e}")
+        return [{"error": str(e)}]
+
+
 # Export all tools
 TIMESCALE_TOOLS = [
+    # Original tools (for detailed queries)
     get_lap_times,
     get_driver_stint_summary,
     compare_driver_pace,
@@ -424,4 +1271,15 @@ TIMESCALE_TOOLS = [
     get_weather_conditions,
     get_session_results,
     get_available_sessions,
+    # Fast tools (materialized views)
+    get_head_to_head,
+    get_driver_season_summary,
+    get_race_summary,
+    get_stint_analysis,
+    get_season_standings,
+    # Advanced query tools
+    query_f1_database,
+    get_database_schema,
+    simulate_pit_strategy,
+    find_similar_race_scenarios,
 ]

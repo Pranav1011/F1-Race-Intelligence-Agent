@@ -297,54 +297,88 @@ Local:    Ollama (Llama 3.2) - Development, offline
 
 ## Implementation Phases
 
-### Phase 1: Foundation (Week 1-2)
+### Phase 1: Foundation ✅ COMPLETE
 - Project scaffolding + Docker Compose
 - Database schemas + connections
 - Basic FastAPI + Next.js setup
 - FastF1 extraction for 1 race (proof of concept)
 - Simple chat endpoint (direct LLM, no agent)
 
-### Phase 2: Data Pipeline (Week 2-3)
+### Phase 2: Data Pipeline ✅ COMPLETE
 - Full FastF1 ingestion pipeline
 - TimescaleDB loader with hypertables
 - Neo4j knowledge graph builder
-- Ingest 2024 season first
-- Backfill 2018-2023
+- Ingest 2024 Bahrain + 2021 season (partial - rate limited)
+- Backfill 2022-2024 (pending rate limit reset)
 
-### Phase 3: Agent Core (Week 3-4)
-- LangGraph state machine
+### Phase 3: Agent Core ✅ COMPLETE
+- LangGraph state machine (6-node architecture: UNDERSTAND → PLAN → EXECUTE → PROCESS → EVALUATE → GENERATE)
 - LLM router (Groq → Gemini → Ollama)
-- Core tools: query_telemetry, query_lap_times, compare_drivers
+- Core tools: 12 tools implemented (TimescaleDB, Neo4j, Qdrant)
 - WebSocket streaming
 - Basic chat UI working end-to-end
 
-### Phase 4: RAG System (Week 4-5)
-- Qdrant collections setup
-- Hybrid retrieval implementation
-- Article/Reddit scraping + ingestion
-- Reranking + CRAG fallback
-- Tools: search_race_context, search_regulations
-
-### Phase 5: Memory & Intelligence (Week 5-6)
-- Mem0 integration
-- Session memory in Redis
-- Past analyses storage
-- find_similar_scenarios tool (what-if)
-- Knowledge graph queries for rich context
-
-### Phase 6: Frontend Polish (Week 6-7)
+### Phase 4: Frontend & UX ✅ COMPLETE
 - Adaptive UI layout system
-- All visualization components
+- F1 Visx visualization components (TireStrategy, GapEvolution, PositionBattle, SectorHeatmap)
+- F1-themed thinking indicators with context-aware messages
 - Framer Motion animations
-- F1 design system polish
-- Mobile responsiveness
+- F1 design system
 
-### Phase 7: Observability & Hardening (Week 7-8)
+### Phase 5: Performance Optimization ✅ COMPLETE
+- Materialized views for common aggregations (6 views)
+- Database indexes for query performance
+- Redis caching layer with TTL management
+- Fast tools using pre-computed data
+
+### Phase 6: Advanced Query Capabilities ✅ COMPLETE
+- **Text-to-SQL Tool** - Allow LLM to write custom SQL queries for any data question
+- **Strategy Simulator** - What-if scenario modeling (alternative pit strategies)
+- **Historical Pattern Matching** - Find similar scenarios from past races
+- Query validation and safety guards
+
+### Phase 6.5: Testing & Validation ✅ COMPLETE
+- Unit tests for backend tools (cache: 17 tests, SQL validation: 28 tests, strategy: 11 tests)
+- All 57 backend tests passing
+- Backend linting (ruff) passing - no syntax/undefined errors
+- Frontend TypeScript type-check passing
+- Frontend dev server running successfully
+- Docker compose integration verified (all services healthy)
+
+### Phase 7: RAG & Knowledge Expansion 🔄 IN PROGRESS
+- ✅ Qdrant collections setup (race_reports, reddit_discussions, regulations, past_analyses)
+- ✅ EmbeddingService with caching (BAAI/bge-base-en-v1.5)
+- ✅ RAGService with hybrid retrieval (semantic + BM25-like keyword scoring)
+- ✅ Vector tools refactored to use RAG service
+- ✅ Health endpoint shows RAG collection stats
+- 🔄 2022-2024 season data ingestion in progress
+- ⬜ Additional data sources:
+  - Ergast API (historical data back to 1950)
+  - F1 regulations and technical documents
+  - Driver/team profiles and history
+- ⬜ Content ingestion scripts for regulations and race reports
+- ⬜ Reranking + CRAG fallback
+
+### Phase 8: Memory & Personalization
+- Mem0 integration for long-term memory
+- Session memory in Redis
+- User preferences persistence
+- Past analyses storage
+- Favorite drivers/teams tracking
+
+### Phase 9: Observability & Hardening
 - Langfuse tracing throughout
 - Sentry error tracking
 - Structured logging
 - Error handling + graceful degradation
+- Rate limiting and query timeouts
+- Test suite and evaluation framework
+
+### Phase 10: Polish & Launch
+- Mobile responsiveness
+- Performance profiling and optimization
 - Demo video recording
+- Documentation
 
 ---
 

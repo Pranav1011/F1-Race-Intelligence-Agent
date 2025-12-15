@@ -47,21 +47,23 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to initialize Neo4j driver: {e}")
 
     try:
-        # Qdrant client
-        from agent.tools.vector_tools import init_client as init_qdrant, init_embedder
+        # RAG service (Qdrant + embeddings)
+        from agent.tools.vector_tools import init_rag
         qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
         qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        init_qdrant(qdrant_host, qdrant_port)
-        logger.info("Qdrant client initialized")
-
-        # Initialize embedder for vector search
-        try:
-            init_embedder()
-            logger.info("Embedder initialized")
-        except Exception as e:
-            logger.warning(f"Failed to initialize embedder: {e}")
+        await init_rag(qdrant_host, qdrant_port)
+        logger.info("RAG service initialized (Qdrant + embeddings)")
     except Exception as e:
-        logger.warning(f"Failed to initialize Qdrant client: {e}")
+        logger.warning(f"Failed to initialize RAG service: {e}")
+
+    try:
+        # Redis cache
+        from db.cache import init_redis
+        redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+        await init_redis(redis_url)
+        logger.info("Redis cache initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Redis cache: {e}")
 
     print("API startup complete")
 
@@ -78,6 +80,12 @@ async def lifespan(app: FastAPI):
     try:
         from agent.tools.neo4j_tools import close_driver as close_neo4j
         await close_neo4j()
+    except Exception:
+        pass
+
+    try:
+        from db.cache import close_redis
+        await close_redis()
     except Exception:
         pass
 
@@ -123,20 +131,35 @@ async def root():
 @app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint."""
-    from agent.tools.timescale_tools import _pool as timescale_pool
     from agent.tools.neo4j_tools import _driver as neo4j_driver
-    from agent.tools.vector_tools import _client as qdrant_client
+    from agent.tools.timescale_tools import _pool as timescale_pool
+    from agent.tools.vector_tools import get_rag_service
+    from db.cache import cache_stats, get_redis
+
+    redis_client = get_redis()
+    rag_service = get_rag_service()
 
     checks = {
         "api": "healthy",
         "timescaledb": "healthy" if timescale_pool else "not_connected",
         "neo4j": "healthy" if neo4j_driver else "not_connected",
-        "qdrant": "healthy" if qdrant_client else "not_connected",
+        "qdrant": "healthy" if rag_service and rag_service.health_check() else "not_connected",
+        "redis": "healthy" if redis_client else "not_connected",
     }
 
     overall = "healthy" if all(v == "healthy" for v in checks.values()) else "degraded"
 
+    # Get cache stats if Redis is connected
+    cache_info = await cache_stats() if redis_client else None
+
+    # Get RAG stats if available
+    rag_stats = None
+    if rag_service:
+        rag_stats = rag_service.get_collection_stats()
+
     return {
         "status": overall,
         "checks": checks,
+        "cache": cache_info,
+        "rag_collections": rag_stats,
     }

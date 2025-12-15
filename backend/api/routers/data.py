@@ -91,3 +91,32 @@ async def constructor_standings(
         "standings": [],
         "message": "Data not yet loaded. Run 'make ingest' to load F1 data.",
     }
+
+
+# ============================================================
+# CACHE MANAGEMENT ENDPOINTS
+# ============================================================
+
+@router.get("/cache/stats")
+async def get_cache_stats():
+    """Get Redis cache statistics."""
+    from db.cache import cache_stats
+    return await cache_stats()
+
+
+@router.delete("/cache")
+async def clear_cache(year: int | None = Query(None, description="Clear cache for specific year")):
+    """
+    Clear cached data.
+
+    If year is specified, clears only that season's cache.
+    Otherwise clears all F1 cache entries.
+    """
+    from db.cache import invalidate_season, invalidate_all
+
+    if year:
+        count = await invalidate_season(year)
+        return {"cleared": count, "year": year}
+    else:
+        count = await invalidate_all()
+        return {"cleared": count, "scope": "all"}

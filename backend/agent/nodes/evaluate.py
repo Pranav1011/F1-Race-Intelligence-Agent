@@ -1,0 +1,117 @@
+"""EVALUATE node - Assess data sufficiency and decide whether to loop."""
+
+import logging
+from typing import Any, Literal
+
+from agent.schemas.analysis import ProcessedAnalysis, EvaluationResult
+
+logger = logging.getLogger(__name__)
+
+# Maximum iterations to prevent infinite loops
+MAX_ITERATIONS = 2
+
+# Minimum completeness score to proceed
+COMPLETENESS_THRESHOLD = 0.7
+
+
+async def evaluate_data(state: dict) -> dict[str, Any]:
+    """
+    EVALUATE node: Assess if data is sufficient to generate a good response.
+
+    Implements the CRAG (Corrective RAG) pattern - if data is insufficient,
+    generates feedback and loops back to PLAN.
+
+    Args:
+        state: Current agent state with processed_analysis
+
+    Returns:
+        Updated state with evaluation result
+    """
+    processed = ProcessedAnalysis(**state.get("processed_analysis", {}))
+    iteration = state.get("iteration_count", 0)
+
+    # Check if we should continue or loop
+    is_sufficient = (
+        processed.completeness_score >= COMPLETENESS_THRESHOLD or
+        iteration >= MAX_ITERATIONS
+    )
+
+    # Generate feedback if insufficient
+    feedback = ""
+    if not is_sufficient:
+        feedback = _generate_feedback(processed, iteration)
+        logger.info(f"Evaluation: insufficient (score={processed.completeness_score:.2f}), looping")
+    else:
+        logger.info(f"Evaluation: sufficient (score={processed.completeness_score:.2f}), continuing")
+
+    result = EvaluationResult(
+        is_sufficient=is_sufficient,
+        score=processed.completeness_score,
+        feedback=feedback,
+        iteration=iteration,
+    )
+
+    return {
+        "evaluation": result.model_dump(),
+        "evaluation_feedback": feedback if not is_sufficient else "",
+        "iteration_count": iteration + 1 if not is_sufficient else iteration,
+    }
+
+
+def should_continue(state: dict) -> Literal["plan", "generate"]:
+    """
+    Router function: Decide whether to loop back to PLAN or continue to GENERATE.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        Next node name ("plan" or "generate")
+    """
+    evaluation = state.get("evaluation", {})
+    is_sufficient = evaluation.get("is_sufficient", True)
+
+    if is_sufficient:
+        return "generate"
+    else:
+        return "plan"
+
+
+def _generate_feedback(processed: ProcessedAnalysis, iteration: int) -> str:
+    """Generate feedback for the PLAN node about what data is missing."""
+    feedback_parts = []
+
+    # Missing data from errors
+    if processed.missing_data:
+        feedback_parts.append(
+            f"The following data could not be retrieved: {', '.join(processed.missing_data)}"
+        )
+
+    # Check if we need more lap data
+    total_laps = sum(a.total_laps for a in processed.lap_analysis.values())
+    if total_laps < 50:
+        feedback_parts.append(
+            f"Only {total_laps} laps retrieved. Need more lap data - "
+            "increase limit or fetch additional sessions."
+        )
+
+    # Check if comparison data is missing
+    if not processed.comparisons and len(processed.lap_analysis) >= 2:
+        feedback_parts.append(
+            "Comparison data not computed - ensure lap times are retrieved for all drivers."
+        )
+
+    # Check if stint data is missing
+    if not processed.stint_summaries:
+        feedback_parts.append(
+            "No stint/tire data available. Consider fetching stint summaries."
+        )
+
+    # Default feedback if nothing specific
+    if not feedback_parts:
+        feedback_parts.append(
+            f"Data completeness is {processed.completeness_score:.0%}. "
+            "Try fetching additional data sources."
+        )
+
+    return " ".join(feedback_parts)
