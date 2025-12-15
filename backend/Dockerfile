@@ -20,7 +20,7 @@ COPY pyproject.toml ./
 # Extract and install dependencies only (skip package build)
 RUN uv pip install --system \
     fastapi uvicorn pydantic pydantic-settings websockets \
-    langgraph langchain langchain-core langchain-groq langchain-google-genai langchain-community \
+    langgraph langchain langchain-core langchain-openai langchain-groq langchain-google-genai langchain-community \
     asyncpg neo4j qdrant-client redis \
     fastf1 mem0ai \
     sentence-transformers cohere \

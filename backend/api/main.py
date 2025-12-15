@@ -4,12 +4,16 @@ F1 Race Intelligence Agent - FastAPI Application
 Main entry point for the backend API.
 """
 
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import chat, data, sessions
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -18,17 +22,46 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Starting F1 Race Intelligence API...")
 
-    # TODO: Initialize database pools
-    # app.state.timescale_pool = await create_timescale_pool()
-    # app.state.neo4j_driver = create_neo4j_driver()
-    # app.state.qdrant_client = create_qdrant_client()
-    # app.state.redis = await create_redis_pool()
+    # Initialize database pools for agent tools
+    try:
+        # TimescaleDB pool
+        from agent.tools.timescale_tools import init_pool as init_timescale
+        timescale_url = os.getenv(
+            "TIMESCALE_URI",
+            "postgresql://f1:f1_password@timescaledb:5432/f1_telemetry"
+        )
+        await init_timescale(timescale_url)
+        logger.info("TimescaleDB pool initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize TimescaleDB pool: {e}")
 
-    # TODO: Initialize agent
-    # app.state.agent = await create_agent(app.state)
+    try:
+        # Neo4j driver
+        from agent.tools.neo4j_tools import init_driver as init_neo4j
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "f1_password")
+        await init_neo4j(neo4j_uri, neo4j_user, neo4j_password)
+        logger.info("Neo4j driver initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Neo4j driver: {e}")
 
-    # TODO: Initialize observability
-    # init_sentry()
+    try:
+        # Qdrant client
+        from agent.tools.vector_tools import init_client as init_qdrant, init_embedder
+        qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
+        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
+        init_qdrant(qdrant_host, qdrant_port)
+        logger.info("Qdrant client initialized")
+
+        # Initialize embedder for vector search
+        try:
+            init_embedder()
+            logger.info("Embedder initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize embedder: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Qdrant client: {e}")
 
     print("API startup complete")
 
@@ -36,10 +69,17 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("Shutting down API...")
-    # TODO: Close connections
-    # await app.state.timescale_pool.close()
-    # await app.state.neo4j_driver.close()
-    # await app.state.redis.close()
+    try:
+        from agent.tools.timescale_tools import close_pool as close_timescale
+        await close_timescale()
+    except Exception:
+        pass
+
+    try:
+        from agent.tools.neo4j_tools import close_driver as close_neo4j
+        await close_neo4j()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -83,16 +123,20 @@ async def root():
 @app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint."""
-    # TODO: Add actual health checks for databases
+    from agent.tools.timescale_tools import _pool as timescale_pool
+    from agent.tools.neo4j_tools import _driver as neo4j_driver
+    from agent.tools.vector_tools import _client as qdrant_client
+
     checks = {
         "api": "healthy",
-        "timescaledb": "not_configured",
-        "neo4j": "not_configured",
-        "qdrant": "not_configured",
-        "redis": "not_configured",
+        "timescaledb": "healthy" if timescale_pool else "not_connected",
+        "neo4j": "healthy" if neo4j_driver else "not_connected",
+        "qdrant": "healthy" if qdrant_client else "not_connected",
     }
 
+    overall = "healthy" if all(v == "healthy" for v in checks.values()) else "degraded"
+
     return {
-        "status": "healthy",
+        "status": overall,
         "checks": checks,
     }

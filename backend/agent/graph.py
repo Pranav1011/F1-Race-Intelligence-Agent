@@ -102,6 +102,7 @@ class F1Agent:
 
     def __init__(
         self,
+        deepseek_api_key: str | None = None,
         groq_api_key: str | None = None,
         google_api_key: str | None = None,
         ollama_base_url: str = "http://ollama:11434",
@@ -110,11 +111,13 @@ class F1Agent:
         Initialize the F1 Agent.
 
         Args:
-            groq_api_key: Groq API key (primary LLM)
+            deepseek_api_key: DeepSeek API key (primary LLM - best reasoning)
+            groq_api_key: Groq API key (fast backup)
             google_api_key: Google API key (backup LLM)
             ollama_base_url: Ollama server URL (local fallback)
         """
         self.config = LLMConfig(
+            deepseek_api_key=deepseek_api_key,
             groq_api_key=groq_api_key,
             google_api_key=google_api_key,
             ollama_base_url=ollama_base_url,
@@ -211,6 +214,7 @@ _agent: F1Agent | None = None
 
 
 def get_agent(
+    deepseek_api_key: str | None = None,
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
     ollama_base_url: str = "http://ollama:11434",
@@ -219,7 +223,8 @@ def get_agent(
     Get or create the singleton F1Agent instance.
 
     Args:
-        groq_api_key: Groq API key
+        deepseek_api_key: DeepSeek API key (primary)
+        groq_api_key: Groq API key (fast backup)
         google_api_key: Google API key
         ollama_base_url: Ollama server URL
 
@@ -229,6 +234,7 @@ def get_agent(
     global _agent
     if _agent is None:
         _agent = F1Agent(
+            deepseek_api_key=deepseek_api_key,
             groq_api_key=groq_api_key,
             google_api_key=google_api_key,
             ollama_base_url=ollama_base_url,

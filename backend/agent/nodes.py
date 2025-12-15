@@ -15,6 +15,36 @@ from agent.llm import LLMRouter
 
 logger = logging.getLogger(__name__)
 
+# Common driver name to code mapping (2024 grid + notable drivers)
+DRIVER_NAME_MAP = {
+    "verstappen": "VER", "max": "VER", "ver": "VER",
+    "perez": "PER", "sergio": "PER", "checo": "PER", "per": "PER",
+    "hamilton": "HAM", "lewis": "HAM", "ham": "HAM",
+    "russell": "RUS", "george": "RUS", "rus": "RUS",
+    "leclerc": "LEC", "charles": "LEC", "lec": "LEC",
+    "sainz": "SAI", "carlos": "SAI", "sai": "SAI",
+    "norris": "NOR", "lando": "NOR", "nor": "NOR",
+    "piastri": "PIA", "oscar": "PIA", "pia": "PIA",
+    "alonso": "ALO", "fernando": "ALO", "alo": "ALO",
+    "stroll": "STR", "lance": "STR", "str": "STR",
+    "gasly": "GAS", "pierre": "GAS", "gas": "GAS",
+    "ocon": "OCO", "esteban": "OCO", "oco": "OCO",
+    "albon": "ALB", "alex": "ALB", "alb": "ALB",
+    "tsunoda": "TSU", "yuki": "TSU", "tsu": "TSU",
+    "ricciardo": "RIC", "daniel": "RIC", "ric": "RIC",
+    "hulkenberg": "HUL", "nico": "HUL", "hul": "HUL",
+    "magnussen": "MAG", "kevin": "MAG", "mag": "MAG",
+    "bottas": "BOT", "valtteri": "BOT", "bot": "BOT",
+    "zhou": "ZHO", "guanyu": "ZHO", "zho": "ZHO",
+    "sargeant": "SAR", "logan": "SAR", "sar": "SAR",
+}
+
+
+def normalize_driver_id(driver_ref: str) -> str:
+    """Convert driver name/reference to 3-letter code."""
+    ref_lower = driver_ref.lower().strip()
+    return DRIVER_NAME_MAP.get(ref_lower, driver_ref.upper()[:3])
+
 # System prompts
 CLASSIFIER_PROMPT = """You are an F1 race analysis query classifier. Analyze the user's query and determine:
 
@@ -159,19 +189,50 @@ async def retrieve_data(
         seasons = context.get("seasons", [])
         races = context.get("races", [])
 
+        # Get the user message for keyword analysis
+        user_message = ""
+        for msg in reversed(state["messages"]):
+            if isinstance(msg, HumanMessage):
+                user_message = msg.content.lower()
+                break
+
         # Historical analysis or comparison - need lap data and results
         if query_type in [QueryType.HISTORICAL_ANALYSIS, QueryType.COMPARISON]:
+            # Check if asking about results/winner/positions
+            is_results_query = any(kw in user_message for kw in [
+                "won", "winner", "podium", "result", "finish", "position",
+                "standings", "points", "champion", "victory", "first"
+            ])
+
+            # Get race results if asking about results OR if no specific drivers mentioned
+            if is_results_query or (not drivers and (races or seasons)):
+                for tool in timescale_tools:
+                    if tool.name == "get_session_results":
+                        year = int(seasons[0]) if seasons else None
+                        result = await tool.ainvoke({
+                            "year": year,
+                        })
+                        if result and isinstance(result, list) and not (result and result[0].get("error")):
+                            retrieved["timescale"].append({
+                                "tool": "get_session_results",
+                                "data": result[:20] if isinstance(result, list) else result,
+                            })
+                            logger.info(f"Retrieved {len(result)} session results")
+
             # Get lap times for mentioned drivers
             for driver in drivers[:2]:  # Limit to 2 drivers
+                driver_code = normalize_driver_id(driver)
                 for tool in timescale_tools:
                     if tool.name == "get_lap_times":
-                        year = seasons[0] if seasons else None
+                        year = int(seasons[0]) if seasons else None
                         result = await tool.ainvoke({
-                            "driver_id": driver,
+                            "driver_id": driver_code,
                             "year": year,
                             "limit": 50,
                         })
-                        if result and not isinstance(result, dict) or not result.get("error"):
+                        # Check for errors - result is a list, error is in first item
+                        has_error = isinstance(result, list) and result and result[0].get("error")
+                        if result and not has_error:
                             retrieved["timescale"].append({
                                 "tool": "get_lap_times",
                                 "driver": driver,
@@ -180,10 +241,12 @@ async def retrieve_data(
 
             # Get driver info from knowledge graph
             for driver in drivers[:2]:
+                driver_code = normalize_driver_id(driver)
                 for tool in neo4j_tools:
                     if tool.name == "get_driver_info":
-                        result = await tool.ainvoke({"driver_id": driver})
-                        if result and not result.get("error"):
+                        result = await tool.ainvoke({"driver_id": driver_code})
+                        has_error = isinstance(result, dict) and result.get("error")
+                        if result and not has_error:
                             retrieved["neo4j"].append({
                                 "tool": "get_driver_info",
                                 "data": result,
@@ -252,14 +315,27 @@ async def generate_response(state: AgentStateDict, llm_router: LLMRouter) -> Age
         if retrieved.get("timescale"):
             context_parts.append("## Telemetry & Timing Data")
             for item in retrieved["timescale"]:
-                context_parts.append(f"From {item['tool']}:")
-                # Summarize data
+                tool_name = item['tool']
+                context_parts.append(f"From {tool_name}:")
                 data = item.get("data", [])
                 if isinstance(data, list) and data:
-                    context_parts.append(f"  {len(data)} records retrieved")
-                    # Show sample
-                    if len(data) > 0:
-                        context_parts.append(f"  Sample: {json.dumps(data[0], default=str)[:200]}...")
+                    # For session results, show full results (they asked for podium/standings)
+                    if tool_name == "get_session_results":
+                        # Get year from first record if available
+                        year = data[0].get("year", "") if data else ""
+                        event = data[0].get("event_name", "Race") if data else "Race"
+                        context_parts.append(f"  {year} {event} Results ({len(data)} finishers):")
+                        for record in data[:10]:  # Top 10
+                            pos = record.get("position", "?")
+                            name = record.get("driver_name", record.get("driver_id", "?"))
+                            team = record.get("team", "?")
+                            pts = record.get("points", 0)
+                            context_parts.append(f"    P{pos}: {name} ({team}) - {pts} pts")
+                    else:
+                        # Summarize other data
+                        context_parts.append(f"  {len(data)} records retrieved")
+                        if len(data) > 0:
+                            context_parts.append(f"  Sample: {json.dumps(data[0], default=str)[:200]}...")
 
         if retrieved.get("neo4j"):
             context_parts.append("\n## Knowledge Graph Data")

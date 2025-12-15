@@ -23,6 +23,7 @@ def get_chat_agent() -> F1Agent:
     global _agent
     if _agent is None:
         _agent = get_agent(
+            deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
             groq_api_key=os.getenv("GROQ_API_KEY"),
             google_api_key=os.getenv("GOOGLE_API_KEY"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),

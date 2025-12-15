@@ -643,8 +643,8 @@ Server → Client: {"type": "done"}
 ## Implementation Phases Summary
 
 1. **Foundation** ✅ - Project setup, Docker, scaffolding
-2. **Data Pipeline** - FastF1 → TimescaleDB → Neo4j ingestion
-3. **Agent Core** - LangGraph + tools + WebSocket streaming
+2. **Data Pipeline** ✅ - FastF1 → TimescaleDB → Neo4j ingestion
+3. **Agent Core** ✅ - LangGraph + LLM Router (Groq primary) + tools + Chat API
 4. **RAG System** - Qdrant + hybrid retrieval + reranking
 5. **Memory** - Mem0 + Redis session state
 6. **Frontend Polish** - Adaptive UI + visualizations

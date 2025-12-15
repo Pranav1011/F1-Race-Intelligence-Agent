@@ -1,7 +1,7 @@
 """
 LLM Router
 
-Implements fallback chain: Groq (primary) -> Gemini (backup) -> Ollama (local).
+Implements fallback chain: DeepSeek (primary) -> Groq -> Gemini -> Ollama.
 Handles rate limiting, errors, and automatic failover.
 """
 
@@ -12,6 +12,7 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from langchain_openai import ChatOpenAI  # DeepSeek uses OpenAI-compatible API
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.chat_models import ChatOllama
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 class LLMProvider(str, Enum):
     """Available LLM providers."""
 
+    DEEPSEEK = "deepseek"
     GROQ = "groq"
     GEMINI = "gemini"
     OLLAMA = "ollama"
@@ -37,7 +39,12 @@ class LLMProvider(str, Enum):
 class LLMConfig:
     """Configuration for LLM providers."""
 
-    # Groq (primary - free tier)
+    # DeepSeek (primary - excellent reasoning, free tier)
+    deepseek_api_key: str | None = None
+    deepseek_model: str = "deepseek-reasoner"  # R1 reasoning model
+    deepseek_base_url: str = "https://api.deepseek.com"
+
+    # Groq (fast backup - free tier)
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
 
@@ -45,9 +52,9 @@ class LLMConfig:
     google_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash-exp"
 
-    # Ollama (local fallback)
+    # Ollama (local - can run DeepSeek R1 locally!)
     ollama_base_url: str = "http://ollama:11434"
-    ollama_model: str = "llama3.2"
+    ollama_model: str = "deepseek-r1:8b"  # Best local reasoning model
 
     # General settings
     temperature: float = 0.7
@@ -64,7 +71,7 @@ class LLMRouter:
     """
     Routes LLM requests through fallback chain.
 
-    Priority: Groq -> Gemini -> Ollama
+    Priority: DeepSeek -> Groq -> Gemini -> Ollama
     """
 
     def __init__(self, config: LLMConfig | None = None):
@@ -76,7 +83,25 @@ class LLMRouter:
 
     def _initialize_providers(self):
         """Initialize available LLM providers."""
-        # Groq (primary)
+        # DeepSeek (primary - best reasoning)
+        if self.config.deepseek_api_key:
+            try:
+                self._providers[LLMProvider.DEEPSEEK] = ChatOpenAI(
+                    api_key=self.config.deepseek_api_key,
+                    base_url=self.config.deepseek_base_url,
+                    model=self.config.deepseek_model,
+                    temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                )
+                logger.info(f"DeepSeek initialized with model {self.config.deepseek_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize DeepSeek: {e}")
+                self._providers[LLMProvider.DEEPSEEK] = None
+        else:
+            logger.info("DeepSeek API key not provided, skipping")
+            self._providers[LLMProvider.DEEPSEEK] = None
+
+        # Groq (fast backup)
         if self.config.groq_api_key:
             try:
                 self._providers[LLMProvider.GROQ] = ChatGroq(
@@ -124,7 +149,16 @@ class LLMRouter:
 
     def get_available_providers(self) -> list[LLMProvider]:
         """Get list of available providers in priority order."""
-        return [p for p in LLMProvider if self._providers.get(p) is not None]
+        # Priority: Groq (fast, free) -> DeepSeek API -> Gemini -> Ollama (local fallback)
+        # Note: Ollama with DeepSeek R1 on CPU is too slow for real-time chat (3+ min/query)
+        # Only prioritize Ollama if running on GPU in the future
+        priority_order = [
+            LLMProvider.GROQ,  # Fast and free - best for real-time chat
+            LLMProvider.DEEPSEEK,  # DeepSeek API (if key provided)
+            LLMProvider.GEMINI,  # Google Gemini backup
+            LLMProvider.OLLAMA,  # Local fallback (slow on CPU)
+        ]
+        return [p for p in priority_order if self._providers.get(p) is not None]
 
     def get_llm(self, provider: LLMProvider | None = None) -> BaseChatModel:
         """
@@ -143,7 +177,7 @@ class LLMRouter:
             return self._providers[provider]
 
         # Auto-select based on priority
-        for p in [LLMProvider.GROQ, LLMProvider.GEMINI, LLMProvider.OLLAMA]:
+        for p in self.get_available_providers():
             if self._providers.get(p):
                 self._current_provider = p
                 return self._providers[p]
@@ -179,7 +213,7 @@ class LLMRouter:
 
                 response = await llm.ainvoke(messages, **kwargs)
                 self._current_provider = provider
-                logger.debug(f"Success with provider: {provider.value}")
+                logger.info(f"Success with provider: {provider.value}")
                 return response
 
             except Exception as e:
@@ -225,7 +259,7 @@ class LLMRouter:
 
                 response = llm.invoke(messages, **kwargs)
                 self._current_provider = provider
-                logger.debug(f"Success with provider: {provider.value}")
+                logger.info(f"Success with provider: {provider.value}")
                 return response
 
             except Exception as e:
@@ -251,6 +285,7 @@ class LLMRouter:
 
 
 def create_llm_router(
+    deepseek_api_key: str | None = None,
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
     ollama_base_url: str = "http://ollama:11434",
@@ -259,7 +294,8 @@ def create_llm_router(
     Factory function to create an LLM router.
 
     Args:
-        groq_api_key: Groq API key
+        deepseek_api_key: DeepSeek API key (primary)
+        groq_api_key: Groq API key (fast backup)
         google_api_key: Google API key for Gemini
         ollama_base_url: Ollama server URL
 
@@ -267,6 +303,7 @@ def create_llm_router(
         Configured LLM router
     """
     config = LLMConfig(
+        deepseek_api_key=deepseek_api_key,
         groq_api_key=groq_api_key,
         google_api_key=google_api_key,
         ollama_base_url=ollama_base_url,

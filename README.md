@@ -168,16 +168,21 @@ make db-shell
 
 ## Roadmap
 
-- [x] Project scaffolding
-- [ ] Data ingestion pipeline
-- [ ] Basic agent with core tools
-- [ ] Chat interface with streaming
-- [ ] Visualization components
-- [ ] RAG system
-- [ ] Memory system (Mem0)
-- [ ] Adaptive UI
-- [ ] What-if simulations
-- [ ] Observability integration
+### Completed
+- [x] **Phase 1**: Project scaffolding, Docker setup, database initialization
+- [x] **Phase 2**: Data ingestion pipeline (FastF1 → TimescaleDB + Neo4j)
+- [x] **Phase 3**: LangGraph Agent Core
+  - [x] LLM Router with fallback chain (Groq → Gemini → Ollama)
+  - [x] Agent state management and graph structure
+  - [x] Core tools (telemetry queries, lap times, knowledge graph)
+  - [x] Chat API endpoints (HTTP + WebSocket)
+  - [x] Session history management
+
+### Upcoming
+- [ ] **Phase 4**: Frontend UI enhancement
+- [ ] **Phase 5**: RAG system (Qdrant + hybrid retrieval)
+- [ ] **Phase 6**: Memory system (Mem0)
+- [ ] **Phase 7**: Observability (Langfuse + Sentry)
 
 ## License
 
