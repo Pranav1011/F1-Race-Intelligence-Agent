@@ -1,0 +1,96 @@
+[project]
+name = "f1-race-intelligence-agent"
+version = "0.1.0"
+description = "AI-powered F1 race analysis agent - Your Race Engineer Co-Pilot"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Pranav", email = "pranav@example.com" }]
+keywords = ["f1", "formula1", "ai", "agent", "langgraph", "telemetry"]
+
+dependencies = [
+    # Core Web Framework
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "websockets>=12.0",
+
+    # LangGraph & LangChain
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-groq>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-community>=0.3.0",
+
+    # Databases
+    "asyncpg>=0.29.0",
+    "neo4j>=5.15.0",
+    "qdrant-client>=1.7.0",
+    "redis>=5.0.0",
+
+    # F1 Data
+    "fastf1>=3.3.0",
+
+    # Memory
+    "mem0ai>=0.1.0",
+
+    # RAG & Embeddings
+    "sentence-transformers>=2.2.0",
+    "cohere>=5.0.0",
+
+    # Observability
+    "langfuse>=2.0.0",
+    "sentry-sdk[fastapi]>=1.39.0",
+    "structlog>=24.1.0",
+
+    # Utilities
+    "httpx>=0.26.0",
+    "pandas>=2.1.0",
+    "numpy>=1.26.0",
+    "python-dotenv>=1.0.0",
+    "tenacity>=8.2.0",
+    "orjson>=3.9.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+    "ipython>=8.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]  # Line length handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "agent", "ingestion", "rag", "memory", "observability", "db"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
