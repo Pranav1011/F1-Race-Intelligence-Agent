@@ -2,7 +2,7 @@
 # F1 Race Intelligence Agent - Makefile
 # ============================================
 
-.PHONY: help setup up down logs shell ingest test lint format clean
+.PHONY: help setup up down logs shell ingest ingest-year ingest-race ingest-test test lint format clean
 
 # Default target
 help:
@@ -26,6 +26,7 @@ help:
 	@echo "  make ingest      - Run full data ingestion (2018-2024)"
 	@echo "  make ingest-year YEAR=2024  - Ingest specific year"
 	@echo "  make ingest-race YEAR=2024 ROUND=1  - Ingest specific race"
+	@echo "  make ingest-test - Quick test with 2024 Bahrain GP (no telemetry)"
 	@echo ""
 	@echo "Database:"
 	@echo "  make db-shell    - Open psql shell to TimescaleDB"
@@ -132,14 +133,15 @@ type-check:
 # ============================================
 
 ingest:
-	docker compose --profile ingestion run --rm ingestion
+	@echo "Running full data ingestion (2018-2024)..."
+	docker compose exec backend python -m ingestion.orchestrator
 
 ingest-year:
 ifndef YEAR
 	$(error YEAR is required. Usage: make ingest-year YEAR=2024)
 endif
-	docker compose --profile ingestion run --rm ingestion \
-		python -m ingestion.orchestrator --start-year $(YEAR) --end-year $(YEAR)
+	@echo "Ingesting $(YEAR) season..."
+	docker compose exec backend python -m ingestion.orchestrator --years $(YEAR)
 
 ingest-race:
 ifndef YEAR
@@ -148,8 +150,12 @@ endif
 ifndef ROUND
 	$(error ROUND is required. Usage: make ingest-race YEAR=2024 ROUND=1)
 endif
-	docker compose --profile ingestion run --rm ingestion \
-		python -m ingestion.orchestrator --year $(YEAR) --round $(ROUND)
+	@echo "Ingesting $(YEAR) Round $(ROUND)..."
+	docker compose exec backend python -m ingestion.orchestrator --race $(YEAR):$(ROUND)
+
+ingest-test:
+	@echo "Test ingestion with 2024 Bahrain GP (Round 1)..."
+	docker compose exec backend python -m ingestion.orchestrator --race 2024:1 --no-telemetry
 
 # ============================================
 # Cleanup
