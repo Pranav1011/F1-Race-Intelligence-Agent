@@ -2,7 +2,6 @@
 name = "f1-race-intelligence-agent"
 version = "0.1.0"
 description = "AI-powered F1 race analysis agent - Your Race Engineer Co-Pilot"
-readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Pranav", email = "pranav@example.com" }]

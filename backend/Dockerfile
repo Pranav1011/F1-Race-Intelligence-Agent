@@ -14,11 +14,19 @@ RUN apt-get update && apt-get install -y \
 # Install uv for fast Python package management
 RUN pip install uv
 
-# Copy dependency files first (for better caching)
+# Copy dependency file first for caching
 COPY pyproject.toml ./
 
-# Install dependencies using uv
-RUN uv pip install --system -e ".[dev]"
+# Extract and install dependencies only (skip package build)
+RUN uv pip install --system \
+    fastapi uvicorn pydantic pydantic-settings websockets \
+    langgraph langchain langchain-core langchain-groq langchain-google-genai langchain-community \
+    asyncpg neo4j qdrant-client redis \
+    fastf1 mem0ai \
+    sentence-transformers cohere \
+    langfuse "sentry-sdk[fastapi]" structlog \
+    httpx pandas numpy python-dotenv tenacity orjson python-multipart \
+    pytest pytest-asyncio pytest-cov ruff
 
 # Copy application code
 COPY . .
