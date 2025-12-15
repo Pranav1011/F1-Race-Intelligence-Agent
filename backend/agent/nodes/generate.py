@@ -56,8 +56,8 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
     )
 
     try:
-        llm = llm_router.get_llm()
-        response = await llm.ainvoke([
+        # Use router's ainvoke for automatic fallback on rate limits
+        response = await llm_router.ainvoke([
             SystemMessage(content=GENERATE_SYSTEM),
             HumanMessage(content=prompt),
         ])

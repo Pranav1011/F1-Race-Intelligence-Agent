@@ -41,8 +41,8 @@ async def plan_data_retrieval(state: dict, llm_router: LLMRouter) -> dict[str, A
     )
 
     try:
-        llm = llm_router.get_llm()
-        response = await llm.ainvoke([
+        # Use router's ainvoke for automatic fallback on rate limits
+        response = await llm_router.ainvoke([
             SystemMessage(content=PLAN_SYSTEM),
             HumanMessage(content=prompt),
         ])
