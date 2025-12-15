@@ -179,6 +179,9 @@ def _build_tool_registry(
             add_tools_from_object(vector_tools, [
                 "search_race_reports",
                 "search_regulations",
+                "search_reddit_discussions",
+                "search_past_analyses",
+                "store_analysis",
             ])
 
     logger.info(f"Tool registry built with {len(registry)} tools: {list(registry.keys())}")

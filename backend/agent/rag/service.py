@@ -191,7 +191,7 @@ class RAGService:
         self,
         query: str,
         collection: str,
-        limit: int = 10,
+        limit: int | None = 10,
         filters: dict[str, Any] | None = None,
         semantic_weight: float = 0.7,
         keyword_weight: float = 0.3,
@@ -214,6 +214,10 @@ class RAGService:
         """
         if not self._initialized:
             self.initialize()
+
+        # Ensure limit is not None
+        if limit is None:
+            limit = 10
 
         # Build Qdrant filter
         qdrant_filter = None
@@ -258,7 +262,7 @@ class RAGService:
 
         for hit in semantic_results:
             content = hit.payload.get(text_field, "")
-            semantic_score = hit.score
+            semantic_score = hit.score if hit.score is not None else 0.0
 
             # Calculate keyword score
             keyword_score = self._keyword_score(query, content)

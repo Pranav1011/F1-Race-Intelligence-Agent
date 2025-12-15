@@ -1,22 +1,26 @@
 """
-Ergast API Integration
+Jolpica F1 API Integration (Ergast API Successor)
 
-Fetches historical F1 data from the Ergast API (1950-present).
+Fetches historical F1 data from the Jolpica F1 API (1950-present).
 This provides supplementary data for seasons not covered by FastF1.
 
-API: https://ergast.com/mrd/
+Note: The original Ergast API was deprecated at the end of 2024.
+Jolpica F1 is a backwards-compatible open source successor.
+
+API: https://api.jolpi.ca/ergast/f1/
+GitHub: https://github.com/jolpica/jolpica-f1
 """
 
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-ERGAST_BASE_URL = "https://ergast.com/api/f1"
+# Jolpica F1 API - backwards compatible with Ergast
+ERGAST_BASE_URL = "https://api.jolpi.ca/ergast/f1"
 
 
 @dataclass
@@ -66,7 +70,7 @@ class RaceResult:
 
 class ErgastClient:
     """
-    Client for the Ergast F1 API.
+    Client for the Jolpica F1 API (Ergast successor).
 
     Provides access to historical F1 data back to 1950.
     """
@@ -77,7 +81,7 @@ class ErgastClient:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         return self._client
 
     async def close(self):
@@ -86,7 +90,7 @@ class ErgastClient:
             self._client = None
 
     async def _fetch(self, endpoint: str, params: dict | None = None) -> dict | None:
-        """Fetch data from Ergast API."""
+        """Fetch data from Jolpica F1 API."""
         client = await self._get_client()
         url = f"{self.base_url}/{endpoint}.json"
 
@@ -95,7 +99,7 @@ class ErgastClient:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            logger.error(f"Ergast API error: {e}")
+            logger.error(f"Jolpica F1 API error: {e}")
             return None
 
     async def get_season_races(self, year: int) -> list[dict]:

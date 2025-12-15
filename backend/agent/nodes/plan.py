@@ -59,9 +59,13 @@ async def plan_data_retrieval(state: dict, llm_router: LLMRouter) -> dict[str, A
         # Build ToolCall objects
         tool_calls = []
         for tc in parsed.get("tool_calls", []):
+            tool_name = tc.get("tool_name") or tc.get("name") or ""
+            if not tool_name:
+                logger.warning(f"Skipping tool call with missing name: {tc}")
+                continue
             tool_calls.append(ToolCall(
                 id=tc.get("id", f"tool_{len(tool_calls)}"),
-                tool_name=tc.get("tool_name", ""),
+                tool_name=tool_name,
                 parameters=tc.get("parameters", {}),
                 depends_on=tc.get("depends_on", []),
                 purpose=tc.get("purpose", ""),
@@ -97,7 +101,30 @@ def _create_fallback_plan(understanding: QueryUnderstanding) -> DataPlan:
     """Create a basic fallback plan when LLM planning fails."""
     tool_calls = []
 
-    # Always try to get session results
+    # Build the search query from extracted entities
+    query_parts = []
+    if understanding.races:
+        query_parts.extend(understanding.races)
+    if understanding.seasons:
+        query_parts.append(str(understanding.seasons[0]))
+    if understanding.drivers:
+        query_parts.extend(understanding.drivers[:2])
+
+    search_query = " ".join(query_parts) if query_parts else "race results"
+
+    # Always search race reports for context
+    tool_calls.append(ToolCall(
+        id="race_reports",
+        tool_name="search_race_reports",
+        parameters={
+            "query": search_query,
+            "season": understanding.seasons[0] if understanding.seasons else None,
+            "limit": 5,
+        },
+        purpose="Search race reports for context",
+    ))
+
+    # Also try to get session results if we have a year
     if understanding.seasons:
         year = understanding.seasons[0]
         tool_calls.append(ToolCall(
@@ -119,8 +146,11 @@ def _create_fallback_plan(understanding: QueryUnderstanding) -> DataPlan:
             purpose=f"Get lap times for {driver}",
         ))
 
-    # Build parallel groups (all lap time fetches can run in parallel)
-    parallel_groups = []
+    # Build parallel groups - race_reports and results can run in parallel
+    parallel_groups = [["race_reports"]]
+    if "results" in [tc.id for tc in tool_calls]:
+        parallel_groups[0].append("results")
+
     lap_ids = [tc.id for tc in tool_calls if tc.id.startswith("laps_")]
     if lap_ids:
         parallel_groups.append(lap_ids)
@@ -129,5 +159,5 @@ def _create_fallback_plan(understanding: QueryUnderstanding) -> DataPlan:
         tool_calls=tool_calls,
         parallel_groups=parallel_groups,
         expected_data_points=100,
-        reasoning="Fallback plan: fetch results and lap times for mentioned drivers",
+        reasoning="Fallback plan: search race reports and fetch results for mentioned drivers",
     )

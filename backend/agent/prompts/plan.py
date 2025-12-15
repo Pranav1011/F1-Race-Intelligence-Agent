@@ -48,6 +48,26 @@ Available tools for F1 data retrieval:
     - Returns: Historical races matching a scenario
     - Use when: What-if analysis or finding precedents
 
+## Vector Search Tools (RAG - Race Reports & Regulations)
+
+11. search_race_reports(query, race_id, season, drivers, limit)
+    - Returns: Relevant race reports, articles, and analysis
+    - Use when: Need race summaries, winner info, or qualitative context
+    - Best for: "Who won X race?", race outcomes, general race info
+
+12. search_regulations(query, document_type, year, limit)
+    - Returns: FIA regulation excerpts (sporting or technical)
+    - Use when: Answering rules questions or explaining regulations
+    - document_type: "sporting" or "technical"
+
+13. search_reddit_discussions(query, race_id, min_score, limit)
+    - Returns: Fan discussions from r/formula1
+    - Use when: Need community opinions or popular narratives
+
+14. search_past_analyses(query, query_type, limit)
+    - Returns: Similar past analyses from this agent
+    - Use when: Similar questions were asked before
+
 ## Session ID Format
 Session IDs follow the pattern: {year}_{round}_{type}
 - year: 2018-2024
@@ -78,11 +98,13 @@ Output a JSON object with:
 - reasoning: Why you chose these tools
 
 IMPORTANT RULES:
-1. For "compare lap times" queries, get ALL laps (don't set limit, or set limit=None)
-2. Group independent calls (e.g., lap times for different drivers) in parallel
-3. Put dependent calls (e.g., get session_id first, then use it) in sequence
-4. Always include context tools (race_info, driver_info) for comprehensive analysis
-5. For strategy analysis, include both stint_summary and stints_graph
+1. For "who won" or race outcome questions, ALWAYS use search_race_reports first
+2. For regulations/rules questions, ALWAYS use search_regulations
+3. For "compare lap times" queries, get ALL laps (don't set limit, or set limit=None)
+4. Group independent calls (e.g., lap times for different drivers) in parallel
+5. Put dependent calls (e.g., get session_id first, then use it) in sequence
+6. Include context tools (race_info, driver_info, search_race_reports) for comprehensive analysis
+7. For strategy analysis, include both stint_summary and stints_graph
 """
 
 PLAN_PROMPT = """Create a data retrieval plan for this F1 query:
