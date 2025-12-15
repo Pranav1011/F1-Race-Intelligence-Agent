@@ -39,11 +39,11 @@ class LLMConfig:
 
     # Groq (primary - free tier)
     groq_api_key: str | None = None
-    groq_model: str = "llama-3.1-70b-versatile"
+    groq_model: str = "llama-3.3-70b-versatile"
 
     # Gemini (backup - free tier)
     google_api_key: str | None = None
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.0-flash-exp"
 
     # Ollama (local fallback)
     ollama_base_url: str = "http://ollama:11434"
