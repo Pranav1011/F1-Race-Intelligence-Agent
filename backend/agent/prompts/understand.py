@@ -31,10 +31,13 @@ User Query: {user_message}
 Recent Conversation:
 {conversation_history}
 
+{user_context}
+
 Respond with a JSON object following the schema exactly. Be thorough in identifying:
 1. All drivers mentioned (convert names to 3-letter codes)
 2. The correct scope (if comparing across a race, use "full_race")
 3. Break complex "why" questions into sub-queries
 4. Generate a hypothetical ideal answer to guide data retrieval
+5. Consider user preferences from memory when interpreting ambiguous queries
 
 JSON Response:"""

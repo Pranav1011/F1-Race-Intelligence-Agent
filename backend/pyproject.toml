@@ -35,6 +35,7 @@ dependencies = [
 
     # Memory
     "mem0ai>=0.1.0",
+    "ollama>=0.4.0",  # For Mem0 Ollama embeddings
 
     # RAG & Embeddings
     "sentence-transformers>=2.2.0",

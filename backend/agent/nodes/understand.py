@@ -53,10 +53,12 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
     """
     user_message = get_last_human_message(state)
     conversation_history = format_conversation_history(state)
+    user_context = state.get("user_context", "")
 
     prompt = UNDERSTAND_PROMPT.format(
         user_message=user_message,
         conversation_history=conversation_history,
+        user_context=user_context,
     )
 
     try:

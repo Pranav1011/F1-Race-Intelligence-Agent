@@ -46,6 +46,10 @@ class EnhancedAgentState(TypedDict):
     visualization_spec: dict | None  # Chart specification
     response_type: str  # "TEXT", "CHART", "MIXED"
 
+    # Memory context
+    user_context: str  # Retrieved from long-term memory (Mem0)
+    session_context: dict  # Working context from Redis
+
     # Metadata
     session_id: str
     user_id: str | None
@@ -56,6 +60,8 @@ class EnhancedAgentState(TypedDict):
 def create_initial_state(
     session_id: str,
     user_id: str | None = None,
+    user_context: str = "",
+    session_context: dict | None = None,
 ) -> EnhancedAgentState:
     """Create initial agent state for a new session."""
     return EnhancedAgentState(
@@ -69,6 +75,8 @@ def create_initial_state(
         analysis_result="",
         visualization_spec=None,
         response_type="TEXT",
+        user_context=user_context,
+        session_context=session_context or {},
         session_id=session_id,
         user_id=user_id,
         iteration_count=0,

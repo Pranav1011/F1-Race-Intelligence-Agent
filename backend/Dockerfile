@@ -22,7 +22,7 @@ RUN uv pip install --system \
     fastapi uvicorn pydantic pydantic-settings websockets \
     langgraph langchain langchain-core langchain-openai langchain-groq langchain-google-genai langchain-community \
     asyncpg neo4j qdrant-client redis \
-    fastf1 mem0ai \
+    fastf1 mem0ai ollama \
     sentence-transformers cohere \
     langfuse "sentry-sdk[fastapi]" structlog \
     httpx pandas numpy python-dotenv tenacity orjson python-multipart \
