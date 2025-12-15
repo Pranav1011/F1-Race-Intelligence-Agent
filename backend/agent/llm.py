@@ -1,0 +1,274 @@
+"""
+LLM Router
+
+Implements fallback chain: Groq (primary) -> Gemini (backup) -> Ollama (local).
+Handles rate limiting, errors, and automatic failover.
+"""
+
+import logging
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.chat_models import ChatOllama
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LLMProvider(str, Enum):
+    """Available LLM providers."""
+
+    GROQ = "groq"
+    GEMINI = "gemini"
+    OLLAMA = "ollama"
+
+
+@dataclass
+class LLMConfig:
+    """Configuration for LLM providers."""
+
+    # Groq (primary - free tier)
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.1-70b-versatile"
+
+    # Gemini (backup - free tier)
+    google_api_key: str | None = None
+    gemini_model: str = "gemini-1.5-flash"
+
+    # Ollama (local fallback)
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_model: str = "llama3.2"
+
+    # General settings
+    temperature: float = 0.7
+    max_tokens: int = 4096
+
+
+class RateLimitError(Exception):
+    """Raised when rate limited by provider."""
+
+    pass
+
+
+class LLMRouter:
+    """
+    Routes LLM requests through fallback chain.
+
+    Priority: Groq -> Gemini -> Ollama
+    """
+
+    def __init__(self, config: LLMConfig | None = None):
+        """Initialize the LLM router."""
+        self.config = config or LLMConfig()
+        self._providers: dict[LLMProvider, BaseChatModel | None] = {}
+        self._initialize_providers()
+        self._current_provider: LLMProvider | None = None
+
+    def _initialize_providers(self):
+        """Initialize available LLM providers."""
+        # Groq (primary)
+        if self.config.groq_api_key:
+            try:
+                self._providers[LLMProvider.GROQ] = ChatGroq(
+                    api_key=self.config.groq_api_key,
+                    model=self.config.groq_model,
+                    temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                )
+                logger.info(f"Groq initialized with model {self.config.groq_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Groq: {e}")
+                self._providers[LLMProvider.GROQ] = None
+        else:
+            logger.info("Groq API key not provided, skipping")
+            self._providers[LLMProvider.GROQ] = None
+
+        # Gemini (backup)
+        if self.config.google_api_key:
+            try:
+                self._providers[LLMProvider.GEMINI] = ChatGoogleGenerativeAI(
+                    google_api_key=self.config.google_api_key,
+                    model=self.config.gemini_model,
+                    temperature=self.config.temperature,
+                    max_output_tokens=self.config.max_tokens,
+                )
+                logger.info(f"Gemini initialized with model {self.config.gemini_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Gemini: {e}")
+                self._providers[LLMProvider.GEMINI] = None
+        else:
+            logger.info("Google API key not provided, skipping Gemini")
+            self._providers[LLMProvider.GEMINI] = None
+
+        # Ollama (local fallback - always try to initialize)
+        try:
+            self._providers[LLMProvider.OLLAMA] = ChatOllama(
+                base_url=self.config.ollama_base_url,
+                model=self.config.ollama_model,
+                temperature=self.config.temperature,
+            )
+            logger.info(f"Ollama initialized with model {self.config.ollama_model}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Ollama: {e}")
+            self._providers[LLMProvider.OLLAMA] = None
+
+    def get_available_providers(self) -> list[LLMProvider]:
+        """Get list of available providers in priority order."""
+        return [p for p in LLMProvider if self._providers.get(p) is not None]
+
+    def get_llm(self, provider: LLMProvider | None = None) -> BaseChatModel:
+        """
+        Get an LLM instance.
+
+        Args:
+            provider: Specific provider to use, or None for auto-selection
+
+        Returns:
+            LLM instance
+
+        Raises:
+            RuntimeError: If no providers are available
+        """
+        if provider and self._providers.get(provider):
+            return self._providers[provider]
+
+        # Auto-select based on priority
+        for p in [LLMProvider.GROQ, LLMProvider.GEMINI, LLMProvider.OLLAMA]:
+            if self._providers.get(p):
+                self._current_provider = p
+                return self._providers[p]
+
+        raise RuntimeError("No LLM providers available")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RateLimitError,)),
+    )
+    async def ainvoke(
+        self,
+        messages: list[BaseMessage],
+        **kwargs: Any,
+    ) -> BaseMessage:
+        """
+        Invoke LLM with automatic fallback.
+
+        Args:
+            messages: Messages to send to LLM
+            **kwargs: Additional arguments for the LLM
+
+        Returns:
+            LLM response message
+        """
+        providers = self.get_available_providers()
+
+        for provider in providers:
+            try:
+                llm = self._providers[provider]
+                logger.debug(f"Trying provider: {provider.value}")
+
+                response = await llm.ainvoke(messages, **kwargs)
+                self._current_provider = provider
+                logger.debug(f"Success with provider: {provider.value}")
+                return response
+
+            except Exception as e:
+                error_str = str(e).lower()
+
+                # Check for rate limiting
+                if "rate" in error_str or "limit" in error_str or "429" in error_str:
+                    logger.warning(f"Rate limited by {provider.value}: {e}")
+                    continue
+
+                # Check for quota exceeded
+                if "quota" in error_str or "exceeded" in error_str:
+                    logger.warning(f"Quota exceeded for {provider.value}: {e}")
+                    continue
+
+                # Other errors - log and try next provider
+                logger.error(f"Error with {provider.value}: {e}")
+                continue
+
+        raise RuntimeError("All LLM providers failed")
+
+    def invoke(
+        self,
+        messages: list[BaseMessage],
+        **kwargs: Any,
+    ) -> BaseMessage:
+        """
+        Synchronous invoke with automatic fallback.
+
+        Args:
+            messages: Messages to send to LLM
+            **kwargs: Additional arguments for the LLM
+
+        Returns:
+            LLM response message
+        """
+        providers = self.get_available_providers()
+
+        for provider in providers:
+            try:
+                llm = self._providers[provider]
+                logger.debug(f"Trying provider: {provider.value}")
+
+                response = llm.invoke(messages, **kwargs)
+                self._current_provider = provider
+                logger.debug(f"Success with provider: {provider.value}")
+                return response
+
+            except Exception as e:
+                error_str = str(e).lower()
+
+                if "rate" in error_str or "limit" in error_str or "429" in error_str:
+                    logger.warning(f"Rate limited by {provider.value}: {e}")
+                    continue
+
+                if "quota" in error_str or "exceeded" in error_str:
+                    logger.warning(f"Quota exceeded for {provider.value}: {e}")
+                    continue
+
+                logger.error(f"Error with {provider.value}: {e}")
+                continue
+
+        raise RuntimeError("All LLM providers failed")
+
+    @property
+    def current_provider(self) -> LLMProvider | None:
+        """Get the currently active provider."""
+        return self._current_provider
+
+
+def create_llm_router(
+    groq_api_key: str | None = None,
+    google_api_key: str | None = None,
+    ollama_base_url: str = "http://ollama:11434",
+) -> LLMRouter:
+    """
+    Factory function to create an LLM router.
+
+    Args:
+        groq_api_key: Groq API key
+        google_api_key: Google API key for Gemini
+        ollama_base_url: Ollama server URL
+
+    Returns:
+        Configured LLM router
+    """
+    config = LLMConfig(
+        groq_api_key=groq_api_key,
+        google_api_key=google_api_key,
+        ollama_base_url=ollama_base_url,
+    )
+    return LLMRouter(config)
