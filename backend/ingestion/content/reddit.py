@@ -24,7 +24,8 @@ REDDIT_BASE_URL = "https://www.reddit.com"
 USER_AGENT = "F1-RIA-Bot/1.0 (Educational F1 Analysis Project)"
 
 # Rate limiting: Reddit allows ~60 requests/min for unauthenticated
-RATE_LIMIT_DELAY = 2.0  # seconds between requests
+# Using 3s delay to be safe and avoid 429 errors
+RATE_LIMIT_DELAY = 3.0  # seconds between requests
 
 
 @dataclass
@@ -96,7 +97,7 @@ class RedditScraper:
         """Close HTTP client."""
         await self.client.aclose()
 
-    async def _fetch_json(self, url: str) -> Optional[dict]:
+    async def _fetch_json(self, url: str, retry_count: int = 0) -> Optional[dict]:
         """Fetch JSON from Reddit with rate limiting."""
         await asyncio.sleep(RATE_LIMIT_DELAY)
 
@@ -106,9 +107,12 @@ class RedditScraper:
             return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                logger.warning("Rate limited, waiting 60s...")
+                if retry_count >= 2:
+                    logger.warning(f"Rate limited 3 times, skipping: {url}")
+                    return None
+                logger.warning(f"Rate limited, waiting 60s... (retry {retry_count + 1}/3)")
                 await asyncio.sleep(60)
-                return await self._fetch_json(url)
+                return await self._fetch_json(url, retry_count + 1)
             logger.error(f"HTTP error fetching {url}: {e}")
             return None
         except Exception as e:
