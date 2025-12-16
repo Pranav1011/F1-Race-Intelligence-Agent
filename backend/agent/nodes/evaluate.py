@@ -7,6 +7,13 @@ from agent.schemas.analysis import ProcessedAnalysis, EvaluationResult
 
 logger = logging.getLogger(__name__)
 
+# Observability imports (optional - graceful degradation)
+try:
+    from observability.sentry_integration import add_breadcrumb
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
 # Maximum iterations to prevent infinite loops
 MAX_ITERATIONS = 2
 
@@ -50,6 +57,20 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
         feedback=feedback,
         iteration=iteration,
     )
+
+    # Add breadcrumb for observability
+    if SENTRY_AVAILABLE:
+        add_breadcrumb(
+            message=f"EVALUATE node: score={processed.completeness_score:.2f}, sufficient={is_sufficient}",
+            category="agent",
+            level="info" if is_sufficient else "warning",
+            data={
+                "completeness_score": processed.completeness_score,
+                "is_sufficient": is_sufficient,
+                "iteration": iteration,
+                "will_loop": not is_sufficient,
+            },
+        )
 
     return {
         "evaluation": result.model_dump(),

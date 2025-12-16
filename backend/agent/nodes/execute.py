@@ -2,11 +2,19 @@
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from agent.schemas.query import DataPlan, ToolCall
 
 logger = logging.getLogger(__name__)
+
+# Observability imports (optional - graceful degradation)
+try:
+    from observability.sentry_integration import add_breadcrumb, capture_exception, span
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
 
 
 async def execute_tools(
@@ -32,6 +40,18 @@ async def execute_tools(
     """
     plan = DataPlan(**state.get("data_plan", {}))
 
+    # Add breadcrumb for observability
+    if SENTRY_AVAILABLE:
+        add_breadcrumb(
+            message=f"EXECUTE node starting with {len(plan.tool_calls)} tools",
+            category="agent",
+            level="info",
+            data={
+                "tool_count": len(plan.tool_calls),
+                "parallel_groups": len(plan.parallel_groups),
+            },
+        )
+
     # Build tool registry
     tool_registry = _build_tool_registry(timescale_tools, neo4j_tools, vector_tools)
 
@@ -40,6 +60,7 @@ async def execute_tools(
 
     results = {}
     executed_ids = set()
+    execution_times = {}
 
     # Execute each parallel group
     for group_idx, group in enumerate(plan.parallel_groups):
@@ -71,6 +92,13 @@ async def execute_tools(
             if isinstance(result, Exception):
                 logger.error(f"Tool {tool_id} failed: {result}")
                 results[tool_id] = {"error": str(result)}
+                if SENTRY_AVAILABLE:
+                    add_breadcrumb(
+                        message=f"Tool {tool_id} failed",
+                        category="tool",
+                        level="error",
+                        data={"error": str(result)},
+                    )
             else:
                 results[tool_id] = result
             executed_ids.add(tool_id)
@@ -87,6 +115,16 @@ async def execute_tools(
                 results[tool_call.id] = {"error": str(e)}
 
     logger.info(f"Execution complete: {len(results)} tools executed")
+
+    # Add completion breadcrumb
+    if SENTRY_AVAILABLE:
+        successful = sum(1 for r in results.values() if not isinstance(r, dict) or "error" not in r)
+        add_breadcrumb(
+            message=f"EXECUTE node completed: {successful}/{len(results)} tools succeeded",
+            category="agent",
+            level="info",
+            data={"successful": successful, "total": len(results)},
+        )
 
     return {"raw_data": results}
 

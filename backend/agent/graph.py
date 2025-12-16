@@ -14,6 +14,10 @@ Memory Integration:
 - User context is loaded from Mem0 before UNDERSTAND
 - Conversation is stored to Mem0 after GENERATE
 - Session context is maintained in Redis
+
+Observability:
+- Langfuse tracing for LLM calls and agent flow
+- Sentry error capture for exceptions
 """
 
 import logging
@@ -313,9 +317,28 @@ class F1Agent:
         # Add user message
         state["messages"].append(HumanMessage(content=message))
 
+        # Get Langfuse callback handler for tracing
+        langfuse_handler = None
         try:
-            # Run the enhanced graph
-            result = await self.graph.ainvoke(state)
+            from observability.langfuse_tracer import get_langfuse_handler
+            langfuse_handler = get_langfuse_handler(
+                session_id=session_id,
+                user_id=user_id,
+                trace_name="f1-agent-chat",
+                metadata={
+                    "message_preview": message[:100],
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Langfuse handler not available: {e}")
+
+        try:
+            # Run the enhanced graph with optional tracing
+            config = {}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+
+            result = await self.graph.ainvoke(state, config=config)
 
             # Update session state
             self._sessions[session_id] = result

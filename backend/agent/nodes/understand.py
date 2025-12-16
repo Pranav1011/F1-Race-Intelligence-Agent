@@ -12,6 +12,13 @@ from agent.llm import LLMRouter
 
 logger = logging.getLogger(__name__)
 
+# Observability imports (optional - graceful degradation)
+try:
+    from observability.sentry_integration import add_breadcrumb, capture_exception, span
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
 
 def get_last_human_message(state: dict) -> str:
     """Extract the last human message from state."""
@@ -54,6 +61,15 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
     user_message = get_last_human_message(state)
     conversation_history = format_conversation_history(state)
     user_context = state.get("user_context", "")
+
+    # Add breadcrumb for observability
+    if SENTRY_AVAILABLE:
+        add_breadcrumb(
+            message=f"UNDERSTAND node processing query: {user_message[:100]}...",
+            category="agent",
+            level="info",
+            data={"user_context_length": len(user_context)},
+        )
 
     prompt = UNDERSTAND_PROMPT.format(
         user_message=user_message,
@@ -105,6 +121,13 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
 
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse understanding response: {e}")
+        if SENTRY_AVAILABLE:
+            add_breadcrumb(
+                message="JSON parse failed in UNDERSTAND node",
+                category="agent",
+                level="warning",
+                data={"error": str(e)},
+            )
         # Fallback to basic understanding
         return {
             "query_understanding": QueryUnderstanding(
@@ -117,6 +140,12 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
         }
     except Exception as e:
         logger.error(f"Error in understand_query: {e}")
+        if SENTRY_AVAILABLE:
+            capture_exception(
+                e,
+                extra={"node": "understand", "query_preview": user_message[:100]},
+                tags={"agent_node": "understand"},
+            )
         return {
             "query_understanding": QueryUnderstanding(
                 query_type=AnalysisType.GENERAL,

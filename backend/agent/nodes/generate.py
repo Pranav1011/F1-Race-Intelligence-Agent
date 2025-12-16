@@ -14,6 +14,13 @@ from agent.nodes.understand import get_last_human_message
 
 logger = logging.getLogger(__name__)
 
+# Observability imports (optional - graceful degradation)
+try:
+    from observability.sentry_integration import add_breadcrumb, capture_exception
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
 
 async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any]:
     """
@@ -32,6 +39,19 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
     processed = ProcessedAnalysis(**state.get("processed_analysis", {}))
     understanding = QueryUnderstanding(**state.get("query_understanding", {}))
     user_query = get_last_human_message(state)
+
+    # Add breadcrumb for observability
+    if SENTRY_AVAILABLE:
+        add_breadcrumb(
+            message=f"GENERATE node creating response for {understanding.query_type}",
+            category="agent",
+            level="info",
+            data={
+                "query_type": understanding.query_type.value if hasattr(understanding.query_type, "value") else str(understanding.query_type),
+                "completeness_score": processed.completeness_score,
+                "has_viz": bool(processed.recommended_viz),
+            },
+        )
 
     # Format data for prompt
     lap_analysis_str = _format_lap_analysis(processed)
@@ -100,6 +120,12 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
 
     except Exception as e:
         logger.error(f"Error generating response: {e}")
+        if SENTRY_AVAILABLE:
+            capture_exception(
+                e,
+                extra={"node": "generate", "query_type": str(understanding.query_type)},
+                tags={"agent_node": "generate"},
+            )
         return {
             "analysis_result": f"I apologize, but I encountered an error generating the analysis: {str(e)}",
             "visualization_spec": None,

@@ -13,6 +13,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import chat, data, sessions
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +26,28 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     # Startup
     print("Starting F1 Race Intelligence API...")
+
+    # Initialize Sentry for error monitoring
+    try:
+        from observability.sentry_integration import init_sentry
+        environment = os.getenv("ENVIRONMENT", "development")
+        sentry_enabled = init_sentry(
+            environment=environment,
+            traces_sample_rate=0.1 if environment == "production" else 1.0,
+        )
+        if sentry_enabled:
+            logger.info("Sentry error monitoring initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Sentry: {e}")
+
+    # Initialize Langfuse for LLM tracing
+    try:
+        from observability.langfuse_tracer import get_tracer
+        tracer = get_tracer()
+        if tracer.enabled:
+            logger.info("Langfuse LLM tracing initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Langfuse: {e}")
 
     # Initialize database pools for agent tools
     try:
@@ -71,6 +98,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("Shutting down API...")
+
+    # Shutdown Langfuse
+    try:
+        from observability.langfuse_tracer import get_tracer
+        tracer = get_tracer()
+        tracer.shutdown()
+    except Exception:
+        pass
+
     try:
         from agent.tools.timescale_tools import close_pool as close_timescale
         await close_timescale()
