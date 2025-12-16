@@ -123,6 +123,7 @@ services:
       # Observability
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_HOST: ${LANGFUSE_HOST}
       SENTRY_DSN: ${SENTRY_DSN}
 
       # App config

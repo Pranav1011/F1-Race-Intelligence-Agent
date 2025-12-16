@@ -164,6 +164,12 @@ async def root():
     }
 
 
+@app.get("/api/v1/sentry-debug")
+async def trigger_error():
+    """Debug endpoint to test Sentry error reporting."""
+    division_by_zero = 1 / 0
+
+
 @app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint."""
