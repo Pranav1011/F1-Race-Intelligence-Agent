@@ -4,7 +4,7 @@ RAG Service for F1 Race Intelligence Agent.
 Provides hybrid retrieval combining:
 - Semantic search (dense embeddings via Qdrant)
 - Keyword search (BM25 via full-text search)
-- Reranking for improved relevance
+- Cohere reranking for improved relevance
 
 Collections:
 - race_reports: Journalist articles and analysis
@@ -13,6 +13,7 @@ Collections:
 """
 
 import logging
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -26,6 +27,14 @@ from qdrant_client.http.models import Distance, VectorParams
 from agent.rag.embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
+
+# Optional Cohere reranker
+try:
+    import cohere
+    COHERE_AVAILABLE = True
+except ImportError:
+    COHERE_AVAILABLE = False
+    logger.debug("Cohere not installed - reranking disabled")
 
 
 @dataclass
@@ -93,6 +102,8 @@ class RAGService:
         qdrant_host: str = "localhost",
         qdrant_port: int = 6333,
         embedding_model: str = "BAAI/bge-base-en-v1.5",
+        cohere_api_key: str | None = None,
+        enable_reranking: bool = True,
     ):
         """
         Initialize the RAG service.
@@ -101,10 +112,25 @@ class RAGService:
             qdrant_host: Qdrant server host
             qdrant_port: Qdrant server port
             embedding_model: Sentence transformer model name
+            cohere_api_key: Cohere API key for reranking (or COHERE_API_KEY env var)
+            enable_reranking: Whether to enable Cohere reranking
         """
         self.client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
         self.embedder = EmbeddingService(model_name=embedding_model)
         self._initialized = False
+
+        # Initialize Cohere reranker
+        self.reranker = None
+        self.reranking_enabled = False
+        if enable_reranking and COHERE_AVAILABLE:
+            api_key = cohere_api_key or os.getenv("COHERE_API_KEY")
+            if api_key and "xxxxx" not in api_key:
+                try:
+                    self.reranker = cohere.Client(api_key)
+                    self.reranking_enabled = True
+                    logger.info("Cohere reranker initialized")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Cohere reranker: {e}")
 
     def initialize(self):
         """Initialize collections and embedding model."""
@@ -162,6 +188,58 @@ class RAGService:
             except Exception as e:
                 logger.debug(f"Index may exist: {field} - {e}")
 
+    async def _rerank(
+        self,
+        query: str,
+        results: list[SearchResult],
+        top_k: int = 10,
+    ) -> list[SearchResult]:
+        """
+        Rerank results using Cohere.
+
+        Args:
+            query: Original search query
+            results: List of search results to rerank
+            top_k: Number of results to return after reranking
+
+        Returns:
+            Reranked list of SearchResult
+        """
+        if not self.reranking_enabled or not results:
+            return results[:top_k]
+
+        try:
+            # Prepare documents for reranking
+            documents = [r.content for r in results]
+
+            # Call Cohere rerank API
+            response = self.reranker.rerank(
+                model="rerank-english-v3.0",
+                query=query,
+                documents=documents,
+                top_n=min(top_k, len(documents)),
+            )
+
+            # Rebuild results with rerank scores
+            reranked = []
+            for result in response.results:
+                original = results[result.index]
+                reranked.append(
+                    SearchResult(
+                        content=original.content,
+                        score=result.relevance_score,  # Use Cohere's relevance score
+                        metadata=original.metadata,
+                        source=original.source,
+                    )
+                )
+
+            logger.debug(f"Reranked {len(results)} results to {len(reranked)}")
+            return reranked
+
+        except Exception as e:
+            logger.warning(f"Reranking failed, using original order: {e}")
+            return results[:top_k]
+
     def _keyword_score(self, query: str, text: str) -> float:
         """
         Simple BM25-like keyword scoring.
@@ -196,6 +274,7 @@ class RAGService:
         semantic_weight: float = 0.7,
         keyword_weight: float = 0.3,
         min_score: float = 0.3,
+        use_reranking: bool = True,
     ) -> HybridSearchResult:
         """
         Perform hybrid search combining semantic and keyword matching.
@@ -208,6 +287,7 @@ class RAGService:
             semantic_weight: Weight for semantic search (0-1)
             keyword_weight: Weight for keyword search (0-1)
             min_score: Minimum combined score threshold
+            use_reranking: Whether to apply Cohere reranking (if available)
 
         Returns:
             HybridSearchResult with ranked results
@@ -280,9 +360,14 @@ class RAGService:
                     )
                 )
 
-        # Sort by combined score and limit
+        # Sort by combined score
         results.sort(key=lambda x: x.score, reverse=True)
-        results = results[:limit]
+
+        # Apply Cohere reranking if enabled and available
+        if use_reranking and self.reranking_enabled and len(results) > 1:
+            results = await self._rerank(query, results, top_k=limit)
+        else:
+            results = results[:limit]
 
         return HybridSearchResult(
             results=results,

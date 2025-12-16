@@ -120,6 +120,9 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       OLLAMA_HOST: http://ollama:11434
 
+      # RAG Enhancement
+      COHERE_API_KEY: ${COHERE_API_KEY}
+
       # Observability
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
