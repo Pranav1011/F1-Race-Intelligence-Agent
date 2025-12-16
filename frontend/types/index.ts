@@ -37,6 +37,9 @@ export type ChartType =
   | 'sector_heatmap'
   | 'lap_progression'
   | 'sector_comparison'
+  | 'race_progress'
+  | 'lap_comparison'
+  | 'lap_time_comparison'
 
 export interface Visualization {
   id: string
@@ -55,9 +58,13 @@ export interface VisualizationConfig {
   tooltip?: boolean
   // F1-specific config
   maxLaps?: number
+  totalLaps?: number
   highlightOvertakes?: boolean
   showDelta?: boolean
   compoundColors?: Record<string, string>
+  driverStats?: Record<string, unknown>
+  raceName?: string
+  year?: number
 }
 
 // WebSocket message types
@@ -70,6 +77,7 @@ export type WSMessageType =
   | 'tool_start'
   | 'tool_end'
   | 'ui_mode'
+  | 'status'
   | 'error'
   | 'done'
 
@@ -87,6 +95,8 @@ export interface WSIncomingMessage {
   }
   tool_id?: string
   mode?: string
+  stage?: string
+  message?: string
   error?: string
 }
 

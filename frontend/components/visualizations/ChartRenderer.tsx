@@ -23,6 +23,8 @@ import {
   GapEvolution,
   PositionBattle,
   SectorHeatmap,
+  RaceProgressChart,
+  LapTimeComparison,
 } from './f1'
 
 interface ChartRendererProps {
@@ -230,6 +232,27 @@ export function ChartRenderer({ visualization }: ChartRendererProps) {
           />
         )
 
+      case 'race_progress':
+        return (
+          <RaceProgressChart
+            data={data as any}
+            drivers={drivers || []}
+            totalLaps={config?.totalLaps || 50}
+            title={title}
+          />
+        )
+
+      case 'lap_comparison':
+      case 'lap_time_comparison':
+        return (
+          <LapTimeComparison
+            data={data as any}
+            drivers={drivers || []}
+            title={title}
+            showDelta={config?.showDelta}
+          />
+        )
+
       default:
         return (
           <div className="flex items-center justify-center h-64 bg-bg-secondary rounded-xl">
@@ -245,6 +268,9 @@ export function ChartRenderer({ visualization }: ChartRendererProps) {
     'gap_evolution',
     'position_battle',
     'sector_heatmap',
+    'race_progress',
+    'lap_comparison',
+    'lap_time_comparison',
   ].includes(type)
 
   return (

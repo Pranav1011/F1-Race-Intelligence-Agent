@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 class LLMProvider(str, Enum):
     """Available LLM providers."""
 
+    OPENAI = "openai"
     DEEPSEEK = "deepseek"
     GROQ = "groq"
     GEMINI = "gemini"
@@ -39,7 +40,12 @@ class LLMProvider(str, Enum):
 class LLMConfig:
     """Configuration for LLM providers."""
 
-    # DeepSeek (primary - excellent reasoning, free tier)
+    # OpenAI (primary - GPT-4)
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o"  # GPT-4o - fast and capable
+    openai_fast_model: str = "gpt-4o-mini"  # Fast model for planning
+
+    # DeepSeek (backup - excellent reasoning, very cheap)
     deepseek_api_key: str | None = None
     deepseek_model: str = "deepseek-reasoner"  # R1 reasoning model
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -89,7 +95,35 @@ class LLMRouter:
 
     def _initialize_providers(self):
         """Initialize available LLM providers."""
-        # DeepSeek (primary - best reasoning)
+        # OpenAI (primary - GPT-4)
+        if self.config.openai_api_key:
+            try:
+                self._providers[LLMProvider.OPENAI] = ChatOpenAI(
+                    api_key=self.config.openai_api_key,
+                    model=self.config.openai_model,
+                    temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                )
+                logger.info(f"OpenAI initialized with model {self.config.openai_model}")
+
+                # Fast planning model (GPT-4o-mini)
+                self._fast_providers[LLMProvider.OPENAI] = ChatOpenAI(
+                    api_key=self.config.openai_api_key,
+                    model=self.config.openai_fast_model,
+                    temperature=0.3,  # Lower temp for planning
+                    max_tokens=1024,  # Shorter responses for planning
+                )
+                logger.info(f"OpenAI fast model initialized: {self.config.openai_fast_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize OpenAI: {e}")
+                self._providers[LLMProvider.OPENAI] = None
+                self._fast_providers[LLMProvider.OPENAI] = None
+        else:
+            logger.info("OpenAI API key not provided, skipping")
+            self._providers[LLMProvider.OPENAI] = None
+            self._fast_providers[LLMProvider.OPENAI] = None
+
+        # DeepSeek (backup - excellent reasoning)
         if self.config.deepseek_api_key:
             try:
                 self._providers[LLMProvider.DEEPSEEK] = ChatOpenAI(
@@ -167,12 +201,11 @@ class LLMRouter:
 
     def get_available_providers(self) -> list[LLMProvider]:
         """Get list of available providers in priority order."""
-        # Priority: Groq (fast, free) -> DeepSeek API -> Gemini -> Ollama (local fallback)
-        # Note: Ollama with DeepSeek R1 on CPU is too slow for real-time chat (3+ min/query)
-        # Only prioritize Ollama if running on GPU in the future
+        # Priority: OpenAI (GPT-4) -> Groq -> DeepSeek -> Gemini -> Ollama
         priority_order = [
-            LLMProvider.GROQ,  # Fast and free - best for real-time chat
-            LLMProvider.DEEPSEEK,  # DeepSeek API (if key provided)
+            LLMProvider.OPENAI,  # GPT-4o - primary, reliable
+            LLMProvider.GROQ,  # Fast and free backup
+            LLMProvider.DEEPSEEK,  # DeepSeek API (cheap, good reasoning)
             LLMProvider.GEMINI,  # Google Gemini backup
             LLMProvider.OLLAMA,  # Local fallback (slow on CPU)
         ]
@@ -347,7 +380,7 @@ class LLMRouter:
         Returns:
             LLM response message
         """
-        providers = [LLMProvider.GROQ, LLMProvider.GEMINI]
+        providers = [LLMProvider.OPENAI, LLMProvider.GROQ, LLMProvider.GEMINI]
 
         for provider in providers:
             if self._fast_providers.get(provider):
@@ -394,6 +427,7 @@ class LLMRouter:
 
 
 def create_llm_router(
+    openai_api_key: str | None = None,
     deepseek_api_key: str | None = None,
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
@@ -403,7 +437,8 @@ def create_llm_router(
     Factory function to create an LLM router.
 
     Args:
-        deepseek_api_key: DeepSeek API key (primary)
+        openai_api_key: OpenAI API key (primary - GPT-4)
+        deepseek_api_key: DeepSeek API key (backup)
         groq_api_key: Groq API key (fast backup)
         google_api_key: Google API key for Gemini
         ollama_base_url: Ollama server URL
@@ -412,6 +447,7 @@ def create_llm_router(
         Configured LLM router
     """
     config = LLMConfig(
+        openai_api_key=openai_api_key,
         deepseek_api_key=deepseek_api_key,
         groq_api_key=groq_api_key,
         google_api_key=google_api_key,

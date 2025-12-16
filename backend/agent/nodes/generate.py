@@ -26,11 +26,11 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
     """
     GENERATE node: Create the final response with visualization.
 
-    Uses processed data (not raw data) to generate an accurate,
-    data-driven response.
+    Uses processed data AND enriched RAG context to generate an accurate,
+    data-driven response with historical/community context.
 
     Args:
-        state: Current agent state with processed_analysis
+        state: Current agent state with processed_analysis and enriched_context
         llm_router: LLM router for inference
 
     Returns:
@@ -38,6 +38,7 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
     """
     processed = ProcessedAnalysis(**state.get("processed_analysis", {}))
     understanding = QueryUnderstanding(**state.get("query_understanding", {}))
+    enriched_context = state.get("enriched_context", {})
     user_query = get_last_human_message(state)
 
     # Add breadcrumb for observability
@@ -50,6 +51,7 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
                 "query_type": understanding.query_type.value if hasattr(understanding.query_type, "value") else str(understanding.query_type),
                 "completeness_score": processed.completeness_score,
                 "has_viz": bool(processed.recommended_viz),
+                "has_enriched_context": bool(enriched_context),
             },
         )
 
@@ -58,6 +60,12 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
     stint_str = _format_stint_summaries(processed)
     comparison_str = _format_comparisons(processed)
     insights_str = "\n".join(f"- {i}" for i in processed.key_insights) or "No key insights computed"
+
+    # Format enriched context
+    race_context_str = _format_race_context(enriched_context.get("race_context", []))
+    community_str = _format_community_insights(enriched_context.get("community_insights", []))
+    regulations_str = _format_regulations(enriched_context.get("regulations", []))
+    similar_str = _format_similar_analyses(enriched_context.get("similar_analyses", []))
 
     # Check if we're generating a visualization
     viz_note = ""
@@ -73,6 +81,10 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
         completeness_score=processed.completeness_score,
         missing_data=", ".join(processed.missing_data) or "None",
         visualization_note=viz_note,
+        race_context=race_context_str,
+        community_insights=community_str,
+        regulations=regulations_str,
+        similar_analyses=similar_str,
     )
 
     try:
@@ -197,6 +209,67 @@ def _format_comparisons(processed: ProcessedAnalysis) -> str:
         lines.append(f"- Laps compared: {comp.laps_compared}")
 
     return "\n".join(lines)
+
+
+def _format_race_context(race_context: list[dict]) -> str:
+    """Format race context from RAG for the prompt."""
+    if not race_context:
+        return "No race context available"
+
+    lines = []
+    for ctx in race_context:
+        source = ctx.get("source", "race report")
+        content = ctx.get("content", "")
+        if content:
+            lines.append(f"**{source}**: {content}")
+
+    return "\n\n".join(lines) if lines else "No race context available"
+
+
+def _format_community_insights(community_insights: list[dict]) -> str:
+    """Format community insights from Reddit for the prompt."""
+    if not community_insights:
+        return "No community insights available"
+
+    lines = []
+    for insight in community_insights:
+        content = insight.get("content", "")
+        score = insight.get("score", 0)
+        if content:
+            lines.append(f"- {content} (score: {score})")
+
+    return "\n".join(lines) if lines else "No community insights available"
+
+
+def _format_regulations(regulations: list[dict]) -> str:
+    """Format regulations for the prompt."""
+    if not regulations:
+        return "No relevant regulations found"
+
+    lines = []
+    for reg in regulations:
+        article = reg.get("article", "")
+        content = reg.get("content", "")
+        if content:
+            prefix = f"**{article}**: " if article else ""
+            lines.append(f"{prefix}{content}")
+
+    return "\n\n".join(lines) if lines else "No relevant regulations found"
+
+
+def _format_similar_analyses(similar_analyses: list[dict]) -> str:
+    """Format similar past analyses for the prompt."""
+    if not similar_analyses:
+        return "No similar past analyses found"
+
+    lines = []
+    for analysis in similar_analyses:
+        query = analysis.get("query", "")
+        preview = analysis.get("analysis_preview", "")
+        if preview:
+            lines.append(f"**Query**: {query}\n{preview}")
+
+    return "\n\n".join(lines) if lines else "No similar past analyses found"
 
 
 def _extract_lap_times_for_viz(state: dict) -> dict[str, list[dict]]:

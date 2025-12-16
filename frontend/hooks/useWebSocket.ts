@@ -3,12 +3,18 @@
 import { useCallback, useRef, useState } from 'react'
 import { WSIncomingMessage, WSOutgoingMessage, Visualization, MessageMetadata } from '@/types'
 
+interface StatusUpdate {
+  stage: string
+  message: string
+}
+
 interface UseWebSocketOptions {
   url: string
   onToken?: (token: string) => void
   onVisualization?: (viz: Visualization) => void
   onMetadata?: (meta: MessageMetadata) => void
   onSessionId?: (sessionId: string) => void
+  onStatus?: (status: StatusUpdate) => void
   onDone?: () => void
   onError?: (error: string) => void
 }
@@ -27,6 +33,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     onVisualization,
     onMetadata,
     onSessionId,
+    onStatus,
     onDone,
     onError,
   } = options
@@ -99,6 +106,12 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
               }
               break
 
+            case 'status':
+              if (data.stage && data.message && onStatus) {
+                onStatus({ stage: data.stage, message: data.message })
+              }
+              break
+
             case 'error':
               if (data.error && onError) {
                 onError(data.error)
@@ -133,7 +146,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
         wsRef.current = null
       }
     },
-    [url, onToken, onVisualization, onMetadata, onSessionId, onDone, onError]
+    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onDone, onError]
   )
 
   return {

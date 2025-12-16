@@ -23,6 +23,7 @@ def get_chat_agent() -> F1Agent:
     global _agent
     if _agent is None:
         _agent = get_agent(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
             groq_api_key=os.getenv("GROQ_API_KEY"),
             google_api_key=os.getenv("GOOGLE_API_KEY"),
@@ -127,12 +128,26 @@ async def websocket_chat(websocket: WebSocket):
             })
 
             try:
-                # Process message (non-streaming for now)
-                # TODO: Implement true streaming with LangGraph callbacks
+                # Send initial status - this gives the user immediate feedback
+                await websocket.send_json({
+                    "type": "status",
+                    "stage": "understanding",
+                    "message": "Consulting the pit wall...",
+                })
+
+                # Process message with status callbacks
+                async def status_callback(stage: str, message: str):
+                    await websocket.send_json({
+                        "type": "status",
+                        "stage": stage,
+                        "message": message,
+                    })
+
                 result = await agent.chat(
                     message=content,
                     session_id=session_id,
                     user_id=user_id,
+                    status_callback=status_callback,
                 )
 
                 # Send query type info
@@ -142,6 +157,14 @@ async def websocket_chat(websocket: WebSocket):
                     "response_type": str(result.get("response_type", "text")),
                     "confidence": result.get("confidence", 0.0),
                 })
+
+                # Send visualization if available
+                viz_spec = result.get("visualization")
+                if viz_spec:
+                    await websocket.send_json({
+                        "type": "visualization",
+                        "spec": viz_spec,
+                    })
 
                 # Send response as tokens (simulated streaming)
                 response_content = result.get("message", "")

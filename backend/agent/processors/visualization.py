@@ -59,11 +59,11 @@ def select_viz_type(analysis_type: AnalysisType, metrics: list[str]) -> list[Cha
         List of recommended chart types
     """
     viz_map = {
-        AnalysisType.COMPARISON: [ChartType.LAP_PROGRESSION, ChartType.SECTOR_COMPARISON],
-        AnalysisType.PACE: [ChartType.LAP_PROGRESSION, ChartType.GAP_EVOLUTION],
-        AnalysisType.STRATEGY: [ChartType.TIRE_STRATEGY, ChartType.LAP_PROGRESSION],
-        AnalysisType.TELEMETRY: [ChartType.SPEED_TRACE],
-        AnalysisType.RESULTS: [ChartType.BAR_CHART, ChartType.TABLE],
+        AnalysisType.COMPARISON: [ChartType.LAP_COMPARISON, ChartType.SECTOR_COMPARISON],
+        AnalysisType.PACE: [ChartType.LAP_COMPARISON, ChartType.GAP_EVOLUTION],
+        AnalysisType.STRATEGY: [ChartType.TIRE_STRATEGY, ChartType.RACE_PROGRESS],
+        AnalysisType.TELEMETRY: [ChartType.SPEED_TRACE, ChartType.LAP_PROGRESSION],
+        AnalysisType.RESULTS: [ChartType.RACE_PROGRESS, ChartType.TABLE],
     }
 
     return viz_map.get(analysis_type, [ChartType.TABLE])
@@ -94,6 +94,8 @@ def generate_viz_spec(
         ChartType.GAP_EVOLUTION: _generate_gap_evolution,
         ChartType.BAR_CHART: _generate_bar_chart,
         ChartType.TABLE: _generate_table,
+        ChartType.RACE_PROGRESS: _generate_race_progress,
+        ChartType.LAP_COMPARISON: _generate_lap_comparison,
     }
 
     generator = generators.get(viz_type)
@@ -273,5 +275,118 @@ def _generate_table(
         title=title or "Data Table",
         data=[],
         config={},
+        drivers=drivers,
+    )
+
+
+def _generate_race_progress(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate animated race progress visualization with car icons."""
+    lap_data = data.get("lap_times", {})
+    if not lap_data:
+        return None
+
+    # Format data for RaceProgressChart component
+    # Structure: list of {lap, driver1_position, driver2_position, ...}
+    chart_data = []
+    max_laps = 0
+
+    for driver, laps in lap_data.items():
+        if driver not in drivers:
+            continue
+        max_laps = max(max_laps, len(laps))
+
+    for lap_num in range(1, max_laps + 1):
+        point = {"lap": lap_num}
+        for driver in drivers:
+            driver_laps = lap_data.get(driver, [])
+            lap_record = next(
+                (l for l in driver_laps if l.get("lap_number") == lap_num),
+                None
+            )
+            if lap_record:
+                point[f"{driver}_position"] = lap_record.get("position", 0)
+                point[f"{driver}_time"] = lap_record.get("lap_time_seconds") or lap_record.get("lap_time")
+                point[f"{driver}_compound"] = lap_record.get("compound", "MEDIUM")
+                point[f"{driver}_pit"] = lap_record.get("stint", 1) != lap_record.get("prev_stint", 1) if "prev_stint" in lap_record else False
+        chart_data.append(point)
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.RACE_PROGRESS,
+        title=title or "Race Progress",
+        data=chart_data,
+        config={
+            "totalLaps": max_laps,
+            "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
+            "compoundColors": COMPOUND_COLORS,
+        },
+        drivers=drivers,
+    )
+
+
+def _generate_lap_comparison(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate head-to-head lap time comparison visualization."""
+    lap_data = data.get("lap_times", {})
+    lap_analysis = data.get("lap_analysis", {})
+
+    if not lap_data and not lap_analysis:
+        return None
+
+    # Format data for LapTimeComparison component
+    # Structure: list of {lap, driver1, driver2, driver1_compound, driver2_compound}
+    chart_data = []
+    max_laps = 0
+
+    for driver, laps in lap_data.items():
+        if driver not in drivers:
+            continue
+        max_laps = max(max_laps, len(laps))
+
+    for lap_num in range(1, max_laps + 1):
+        point = {"lap": lap_num}
+        for driver in drivers:
+            driver_laps = lap_data.get(driver, [])
+            lap_record = next(
+                (l for l in driver_laps if l.get("lap_number") == lap_num),
+                None
+            )
+            if lap_record:
+                lap_time = lap_record.get("lap_time") or lap_record.get("lap_time_seconds")
+                if lap_time:
+                    point[driver] = round(lap_time, 3)
+                point[f"{driver}_compound"] = lap_record.get("compound", "MEDIUM")
+                point[f"{driver}_sector1"] = lap_record.get("sector_1_seconds")
+                point[f"{driver}_sector2"] = lap_record.get("sector_2_seconds")
+                point[f"{driver}_sector3"] = lap_record.get("sector_3_seconds")
+        chart_data.append(point)
+
+    # Extract driver stats from lap_analysis
+    driver_stats = {}
+    for driver in drivers:
+        analysis = lap_analysis.get(driver)
+        if analysis:
+            if hasattr(analysis, "model_dump"):
+                driver_stats[driver] = analysis.model_dump()
+            elif isinstance(analysis, dict):
+                driver_stats[driver] = analysis
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.LAP_COMPARISON,
+        title=title or "Lap Time Comparison",
+        data=chart_data,
+        config={
+            "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
+            "compoundColors": COMPOUND_COLORS,
+            "driverStats": driver_stats,
+        },
         drivers=drivers,
     )

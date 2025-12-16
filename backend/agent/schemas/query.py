@@ -21,7 +21,9 @@ class AnalysisType(str, Enum):
     PACE = "pace"                    # Lap times, consistency
     TELEMETRY = "telemetry"          # Speed traces, braking
     INCIDENT = "incident"            # Crashes, penalties
-    PREDICTION = "prediction"        # What-if scenarios
+    PREDICTION = "prediction"        # Future predictions
+    WHAT_IF = "what_if"              # What-if scenarios
+    HISTORICAL = "historical"        # Historical records/statistics
     RESULTS = "results"              # Race results, standings
     GENERAL = "general"              # General F1 knowledge
 

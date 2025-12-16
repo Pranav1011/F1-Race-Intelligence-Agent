@@ -3,6 +3,7 @@ TimescaleDB Tools
 
 Tools for querying F1 telemetry, lap times, and weather data from TimescaleDB.
 Includes Redis caching for fast repeated queries.
+Includes validation for year ranges, driver participation, and data availability.
 """
 
 import logging
@@ -12,6 +13,18 @@ import asyncpg
 from langchain_core.tools import tool
 
 from db.cache import cached, cache_get, cache_set, _generate_cache_key, CACHE_TTL
+from agent.validation import (
+    validate_year,
+    validate_driver,
+    validate_race_name,
+    normalize_driver_id,
+    normalize_race_name,
+    validate_tool_result,
+    check_driver_in_result,
+    ErrorCode,
+    create_user_friendly_error,
+    suggest_alternatives_for_empty_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +61,33 @@ async def get_lap_times(
     Args:
         session_id: Specific session ID (e.g., "2024_1_R")
         driver_id: Filter by driver abbreviation (e.g., "VER", "HAM")
-        year: Filter by season year
+        year: Filter by season year (1950-2025)
         event_name: Filter by race name (partial match)
         limit: Maximum number of results
 
     Returns:
-        List of lap time records with driver, lap number, times, tire info
+        List of lap time records with driver, lap number, times, tire info.
+        Returns error dict with suggestions if validation fails or no data found.
     """
     if not _pool:
-        return [{"error": "Database connection not initialized"}]
+        return [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}]
+
+    # Validate inputs
+    year_validation = validate_year(year)
+    if not year_validation.is_valid:
+        return [year_validation.to_dict()["error"]]
+
+    driver_validation = validate_driver(driver_id)
+    if not driver_validation.is_valid:
+        return [driver_validation.to_dict()["error"]]
+
+    race_validation = validate_race_name(event_name)
+    if not race_validation.is_valid:
+        return [race_validation.to_dict()["error"]]
+
+    # Normalize inputs
+    norm_driver = normalize_driver_id(driver_id) if driver_id else None
+    norm_race = normalize_race_name(event_name) if event_name else None
 
     try:
         query = """
@@ -86,9 +117,9 @@ async def get_lap_times(
             params.append(session_id)
             param_idx += 1
 
-        if driver_id:
+        if norm_driver:
             query += f" AND lt.driver_id = ${param_idx}"
-            params.append(driver_id.upper())
+            params.append(norm_driver)
             param_idx += 1
 
         if year:
@@ -96,9 +127,10 @@ async def get_lap_times(
             params.append(year)
             param_idx += 1
 
-        if event_name:
+        if norm_race:
+            # Use ILIKE for partial match with normalized name
             query += f" AND s.event_name ILIKE ${param_idx}"
-            params.append(f"%{event_name}%")
+            params.append(f"%{norm_race}%")
             param_idx += 1
 
         query += f" ORDER BY lt.lap_number LIMIT ${param_idx}"
@@ -106,11 +138,38 @@ async def get_lap_times(
 
         async with _pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
+            results = [dict(row) for row in rows]
 
+        # Validate results
+        if not results:
+            suggestions = suggest_alternatives_for_empty_result(
+                "lap_times",
+                {"year": year, "driver_id": driver_id, "event_name": event_name}
+            )
+            return [{
+                "error": "No lap time data found for the specified criteria",
+                "code": "NO_TELEMETRY_DATA",
+                "suggestions": suggestions,
+                "query_params": {
+                    "driver": norm_driver,
+                    "year": year,
+                    "race": norm_race,
+                }
+            }]
+
+        # If driver was specified, verify they're in results
+        if norm_driver:
+            driver_check = check_driver_in_result(results, norm_driver)
+            if not driver_check.is_valid:
+                return [driver_check.to_dict()["error"]]
+
+        return results
+
+    except asyncpg.exceptions.QueryCanceledError:
+        return [{"error": "Query timed out. Try adding more filters.", "code": "DATABASE_TIMEOUT"}]
     except Exception as e:
         logger.error(f"Error getting lap times: {e}")
-        return [{"error": str(e)}]
+        return [{"error": str(e), "code": "DATABASE_QUERY_ERROR"}]
 
 
 @tool
@@ -168,19 +227,50 @@ async def compare_driver_pace(
 
     Args:
         session_id: Session ID (e.g., "2024_1_R")
-        driver_ids: List of driver abbreviations to compare
+        driver_ids: List of driver abbreviations or names to compare
         stint: Specific stint to compare (optional)
 
     Returns:
-        Comparison data with average pace, best laps, consistency
+        Comparison data with average pace, best laps, consistency.
+        Includes warnings for drivers not found in the session.
     """
     if not _pool:
-        return {"error": "Database connection not initialized"}
+        return {"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}
+
+    if not driver_ids or len(driver_ids) < 2:
+        return {
+            "error": "At least 2 drivers required for comparison",
+            "code": "INVALID_PARAMETER",
+            "suggestion": "Provide a list of 2 or more driver codes (e.g., ['VER', 'HAM'])"
+        }
+
+    # Validate and normalize driver IDs
+    normalized_drivers = []
+    validation_errors = []
+
+    for driver_id in driver_ids:
+        driver_validation = validate_driver(driver_id)
+        if not driver_validation.is_valid:
+            validation_errors.append(driver_validation.to_dict()["error"])
+        else:
+            normalized_drivers.append(normalize_driver_id(driver_id))
+
+    # Remove duplicates
+    normalized_drivers = list(set(normalized_drivers))
+
+    if len(normalized_drivers) < 2:
+        if validation_errors:
+            return {"error": "Could not validate drivers", "validation_errors": validation_errors}
+        return {
+            "error": "Need at least 2 distinct drivers for comparison",
+            "code": "INVALID_PARAMETER",
+        }
 
     try:
         results = {}
+        missing_drivers = []
 
-        for driver_id in driver_ids:
+        for driver in normalized_drivers:
             query = """
                 SELECT
                     driver_id,
@@ -198,15 +288,65 @@ async def compare_driver_pace(
             """
 
             async with _pool.acquire() as conn:
-                row = await conn.fetchrow(query, session_id, driver_id.upper(), stint)
+                row = await conn.fetchrow(query, session_id, driver, stint)
                 if row:
-                    results[driver_id.upper()] = dict(row)
+                    results[driver] = dict(row)
+                else:
+                    missing_drivers.append(driver)
 
-        return results
+        # If no drivers found at all
+        if not results:
+            # Check if session exists
+            async with _pool.acquire() as conn:
+                session_check = await conn.fetchrow(
+                    "SELECT event_name, year FROM sessions WHERE session_id = $1",
+                    session_id
+                )
+
+            if not session_check:
+                return {
+                    "error": f"Session '{session_id}' not found",
+                    "code": "SESSION_NOT_FOUND",
+                    "suggestion": "Session IDs are formatted as '{year}_{round}_{type}' (e.g., '2024_1_R' for 2024 Bahrain Race)"
+                }
+
+            # Get drivers who did participate
+            participants = await conn.fetch(
+                "SELECT DISTINCT driver_id FROM lap_times WHERE session_id = $1",
+                session_id
+            )
+            participant_list = [r["driver_id"] for r in participants]
+
+            return {
+                "error": f"None of the specified drivers participated in {session_check['event_name']} {session_check['year']}",
+                "code": "DRIVER_NOT_IN_RACE",
+                "requested_drivers": normalized_drivers,
+                "available_drivers": participant_list[:10],
+                "suggestion": "These drivers were in this session. Try comparing some of them."
+            }
+
+        # Some but not all drivers found - return results with warning
+        response = {
+            "comparison": results,
+            "session_id": session_id,
+            "drivers_compared": list(results.keys()),
+        }
+
+        if missing_drivers:
+            response["warnings"] = [{
+                "code": "DRIVER_NOT_IN_RACE",
+                "message": f"Driver(s) not found in this session: {', '.join(missing_drivers)}",
+                "missing_drivers": missing_drivers,
+            }]
+
+        if validation_errors:
+            response["validation_warnings"] = validation_errors
+
+        return response
 
     except Exception as e:
         logger.error(f"Error comparing driver pace: {e}")
-        return {"error": str(e)}
+        return {"error": str(e), "code": "DATABASE_QUERY_ERROR"}
 
 
 @tool
@@ -434,26 +574,52 @@ async def get_head_to_head(
     FAST: Uses materialized view + Redis cache for instant results.
 
     Args:
-        driver_1: First driver abbreviation (e.g., "VER")
-        driver_2: Second driver abbreviation (e.g., "HAM")
-        year: Filter by season year
+        driver_1: First driver abbreviation or name (e.g., "VER", "Verstappen")
+        driver_2: Second driver abbreviation or name (e.g., "HAM", "Hamilton")
+        year: Filter by season year (1950-2025)
         event_name: Filter by race name (partial match)
 
     Returns:
-        List of race-by-race comparisons with pace delta, sector deltas
+        List of race-by-race comparisons with pace delta, sector deltas.
+        Returns error with suggestions if drivers not found or didn't race together.
     """
     if not _pool:
-        return [{"error": "Database connection not initialized"}]
+        return [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}]
+
+    # Validate inputs
+    year_validation = validate_year(year)
+    if not year_validation.is_valid:
+        return [year_validation.to_dict()["error"]]
+
+    driver1_validation = validate_driver(driver_1)
+    if not driver1_validation.is_valid:
+        return [driver1_validation.to_dict()["error"]]
+
+    driver2_validation = validate_driver(driver_2)
+    if not driver2_validation.is_valid:
+        return [driver2_validation.to_dict()["error"]]
+
+    # Normalize driver IDs
+    d1_norm = normalize_driver_id(driver_1)
+    d2_norm = normalize_driver_id(driver_2)
+
+    # Check if comparing same driver
+    if d1_norm == d2_norm:
+        return [{
+            "error": f"Cannot compare {d1_norm} to themselves",
+            "code": "INVALID_COMPARISON",
+            "suggestion": "Please provide two different drivers for comparison"
+        }]
 
     # Normalize driver order (alphabetical in materialized view)
-    d1, d2 = sorted([driver_1.upper(), driver_2.upper()])
+    d1, d2 = sorted([d1_norm, d2_norm])
 
     # Check cache first
     cache_key = _generate_cache_key("head_to_head", d1=d1, d2=d2, year=year, event=event_name)
-    cached = await cache_get(cache_key)
-    if cached is not None:
+    cached_result = await cache_get(cache_key)
+    if cached_result is not None:
         logger.debug(f"Cache HIT: head_to_head {d1} vs {d2}")
-        return cached
+        return cached_result
 
     try:
         query = """
@@ -484,8 +650,9 @@ async def get_head_to_head(
             param_idx += 1
 
         if event_name:
+            norm_race = normalize_race_name(event_name)
             query += f" AND event_name ILIKE ${param_idx}"
-            params.append(f"%{event_name}%")
+            params.append(f"%{norm_race}%")
             param_idx += 1
 
         query += " ORDER BY year, event_name"
@@ -494,13 +661,60 @@ async def get_head_to_head(
             rows = await conn.fetch(query, *params)
             result = [dict(row) for row in rows]
 
+        # Handle empty results with helpful message
+        if not result:
+            error_context = {
+                "driver1": d1_norm,
+                "driver2": d2_norm,
+                "year": year,
+                "race": event_name
+            }
+
+            # Check if either driver has any data in the specified year
+            check_query = """
+                SELECT DISTINCT driver_id, year FROM lap_times lt
+                JOIN sessions s ON lt.session_id = s.session_id
+                WHERE driver_id IN ($1, $2)
+            """
+            check_params = [d1, d2]
+            if year:
+                check_query += " AND s.year = $3"
+                check_params.append(year)
+
+            async with _pool.acquire() as conn:
+                driver_data = await conn.fetch(check_query, *check_params)
+
+            found_drivers = {row["driver_id"] for row in driver_data}
+            found_years = {row["year"] for row in driver_data}
+
+            suggestions = []
+
+            if d1 not in found_drivers:
+                suggestions.append(f"{d1} has no race data" + (f" for {year}" if year else ""))
+            if d2 not in found_drivers:
+                suggestions.append(f"{d2} has no race data" + (f" for {year}" if year else ""))
+
+            if found_drivers and found_years:
+                if year and year not in found_years:
+                    available_years = sorted(found_years, reverse=True)[:5]
+                    suggestions.append(f"Data available for: {', '.join(map(str, available_years))}")
+                else:
+                    suggestions.append(f"{d1} and {d2} may not have raced together in comparable sessions")
+
+            return [{
+                "error": f"No head-to-head data found for {d1_norm} vs {d2_norm}" + (f" in {year}" if year else ""),
+                "code": "NO_COMPARISON_DATA",
+                "suggestions": suggestions or ["Try different drivers or a different year"],
+                "query_params": error_context
+            }]
+
         # Cache the result
         await cache_set(cache_key, result, CACHE_TTL["head_to_head"])
         return result
 
     except Exception as e:
         logger.error(f"Error getting head-to-head: {e}")
-        return [{"error": str(e)}]
+        return [{"error": str(e), "code": "DATABASE_QUERY_ERROR"}]
 
 
 @tool

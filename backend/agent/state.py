@@ -41,10 +41,16 @@ class EnhancedAgentState(TypedDict):
     evaluation: dict  # Serialized EvaluationResult schema
     evaluation_feedback: str  # Feedback for PLAN node if looping
 
+    # ENRICH node output (RAG context)
+    enriched_context: dict  # Contains race_context, community_insights, regulations, similar_analyses
+
     # GENERATE node output
     analysis_result: str  # Final text response
     visualization_spec: dict | None  # Chart specification
     response_type: str  # "TEXT", "CHART", "MIXED"
+
+    # VALIDATE node output
+    validation_result: dict | None  # Contains passes_validation, score, issues, suggestions
 
     # Memory context
     user_context: str  # Retrieved from long-term memory (Mem0)
@@ -72,9 +78,11 @@ def create_initial_state(
         processed_analysis={},
         evaluation={},
         evaluation_feedback="",
+        enriched_context={},
         analysis_result="",
         visualization_spec=None,
         response_type="TEXT",
+        validation_result=None,
         user_context=user_context,
         session_context=session_context or {},
         session_id=session_id,

@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Message } from '@/types'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
@@ -10,50 +11,206 @@ interface MessageBubbleProps {
   isStreaming?: boolean
 }
 
+// Custom markdown components for better styling
+const markdownComponents = {
+  h1: ({ children }: any) => (
+    <h1 className="text-2xl font-bold text-white mb-4 mt-6 first:mt-0 border-b border-white/10 pb-2">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }: any) => (
+    <h2 className="text-xl font-bold text-white mb-3 mt-5 first:mt-0 flex items-center gap-2">
+      <span className="w-1 h-6 bg-f1-red rounded-full" />
+      {children}
+    </h2>
+  ),
+  h3: ({ children }: any) => (
+    <h3 className="text-lg font-semibold text-white mb-2 mt-4 first:mt-0">
+      {children}
+    </h3>
+  ),
+  p: ({ children }: any) => (
+    <p className="text-white/90 mb-3 leading-relaxed last:mb-0">{children}</p>
+  ),
+  ul: ({ children }: any) => (
+    <ul className="space-y-2 mb-4 ml-4">{children}</ul>
+  ),
+  ol: ({ children }: any) => (
+    <ol className="space-y-2 mb-4 ml-4 list-decimal">{children}</ol>
+  ),
+  li: ({ children }: any) => (
+    <li className="text-white/90 flex items-start gap-2">
+      <span className="text-f1-red mt-1.5">•</span>
+      <span>{children}</span>
+    </li>
+  ),
+  strong: ({ children }: any) => (
+    <strong className="font-bold text-white">{children}</strong>
+  ),
+  em: ({ children }: any) => (
+    <em className="text-f1-gray italic">{children}</em>
+  ),
+  code: ({ inline, children }: any) =>
+    inline ? (
+      <code className="bg-white/10 px-1.5 py-0.5 rounded text-sm font-mono text-orange-400">
+        {children}
+      </code>
+    ) : (
+      <code className="block bg-black/30 p-4 rounded-lg text-sm font-mono text-green-400 overflow-x-auto my-3">
+        {children}
+      </code>
+    ),
+  blockquote: ({ children }: any) => (
+    <blockquote className="border-l-4 border-f1-red pl-4 my-4 bg-white/5 py-2 rounded-r-lg">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }: any) => (
+    <div className="overflow-x-auto my-4">
+      <table className="w-full border-collapse">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: any) => (
+    <thead className="bg-white/5 border-b border-white/10">{children}</thead>
+  ),
+  th: ({ children }: any) => (
+    <th className="px-4 py-2 text-left text-sm font-semibold text-white">
+      {children}
+    </th>
+  ),
+  td: ({ children }: any) => (
+    <td className="px-4 py-2 text-sm text-white/80 border-b border-white/5">
+      {children}
+    </td>
+  ),
+}
+
+// Typing cursor animation
+function TypingCursor() {
+  return (
+    <motion.span
+      className="inline-block w-0.5 h-4 ml-0.5 bg-f1-red rounded-full"
+      animate={{ opacity: [1, 0, 1] }}
+      transition={{ duration: 0.8, repeat: Infinity }}
+    />
+  )
+}
+
+// Confidence badge styling
+function ConfidenceBadge({ confidence }: { confidence: number }) {
+  const percentage = Math.round(confidence * 100)
+  const color =
+    percentage >= 80
+      ? 'text-green-400 bg-green-400/10 border-green-400/30'
+      : percentage >= 50
+        ? 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30'
+        : 'text-red-400 bg-red-400/10 border-red-400/30'
+
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full border ${color}`}>
+      {percentage}% confidence
+    </span>
+  )
+}
+
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
+  // Parse query type for display
+  const queryType = useMemo(() => {
+    const qt = message.metadata?.queryType
+    if (!qt) return null
+    return qt.replace('AnalysisType.', '').replace('QueryType.', '').toLowerCase()
+  }, [message.metadata?.queryType])
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-6`}
     >
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-          isUser
-            ? 'bg-f1-red text-white rounded-br-md'
-            : 'bg-bg-secondary text-white rounded-bl-md'
+        className={`relative max-w-[85%] ${
+          isUser ? 'order-2' : 'order-1'
         }`}
       >
-        {isUser ? (
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-        ) : (
-          <div className="prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content}
-            </ReactMarkdown>
-            {isStreaming && (
-              <span className="inline-block w-2 h-4 ml-1 bg-f1-red animate-pulse" />
+        {/* Avatar */}
+        <div
+          className={`absolute top-0 ${
+            isUser ? '-right-12' : '-left-12'
+          } w-8 h-8 rounded-full flex items-center justify-center ${
+            isUser
+              ? 'bg-f1-red'
+              : 'bg-gradient-to-br from-background-tertiary to-background-secondary border border-white/10'
+          }`}
+        >
+          {isUser ? (
+            <span className="text-white text-sm">👤</span>
+          ) : (
+            <span className="text-lg">🏎️</span>
+          )}
+        </div>
+
+        {/* Message bubble */}
+        <div
+          className={`relative overflow-hidden ${
+            isUser
+              ? 'bg-gradient-to-br from-f1-red to-red-700 text-white rounded-2xl rounded-br-md'
+              : 'bg-gradient-to-br from-background-secondary to-background-tertiary text-white rounded-2xl rounded-bl-md border border-white/5'
+          }`}
+          style={{
+            boxShadow: isUser
+              ? '0 4px 20px rgba(225, 6, 0, 0.2)'
+              : '0 4px 20px rgba(0, 0, 0, 0.3)',
+          }}
+        >
+          {/* Subtle gradient overlay for assistant messages */}
+          {!isUser && (
+            <div className="absolute inset-0 bg-gradient-to-r from-f1-red/5 to-transparent pointer-events-none" />
+          )}
+
+          <div className="relative px-5 py-4">
+            {isUser ? (
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                {message.content}
+              </p>
+            ) : (
+              <div className="prose prose-invert prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {message.content}
+                </ReactMarkdown>
+                {isStreaming && <TypingCursor />}
+              </div>
             )}
           </div>
-        )}
+        </div>
 
-        {/* Metadata badge */}
-        {!isUser && message.metadata?.queryType && !isStreaming && (
-          <div className="mt-2 pt-2 border-t border-white/10">
-            <span className="text-xs text-f1-gray">
-              {message.metadata.queryType.replace('QueryType.', '')}
-              {message.metadata.confidence && (
-                <span className="ml-2 opacity-60">
-                  {Math.round(message.metadata.confidence * 100)}% confidence
-                </span>
-              )}
-            </span>
-          </div>
+        {/* Metadata footer for assistant messages */}
+        {!isUser && !isStreaming && message.metadata && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="flex items-center gap-3 mt-2 px-2"
+          >
+            {queryType && (
+              <span className="text-xs text-f1-gray capitalize flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-f1-red" />
+                {queryType}
+              </span>
+            )}
+            {message.metadata.confidence !== undefined && (
+              <ConfidenceBadge confidence={message.metadata.confidence} />
+            )}
+          </motion.div>
         )}
       </div>
     </motion.div>
   )
 }
+
+export default MessageBubble

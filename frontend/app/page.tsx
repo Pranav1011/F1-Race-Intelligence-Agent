@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { useChatStore } from '@/stores/chat-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -25,6 +25,9 @@ export default function Home() {
 
   const { setArtifact, sidebarOpen } = useUIStore()
 
+  // Track current status message for loading indicator
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+
   // Load sessions from localStorage on mount
   useEffect(() => {
     loadFromStorage()
@@ -34,6 +37,8 @@ export default function Home() {
   const { sendMessage: wsSendMessage } = useWebSocket({
     url: API_ENDPOINTS.chatWs,
     onToken: (token) => {
+      // Clear status message when we start receiving tokens
+      setStatusMessage(null)
       appendToLastMessage(token)
     },
     onVisualization: (viz) => {
@@ -43,11 +48,17 @@ export default function Home() {
     onMetadata: (meta) => {
       updateLastMessage({ metadata: meta })
     },
+    onStatus: (status) => {
+      // Update status message for loading indicator
+      setStatusMessage(status.message)
+    },
     onDone: () => {
       setStreaming(false)
+      setStatusMessage(null)
     },
     onError: (error) => {
       setStreaming(false)
+      setStatusMessage(null)
       appendToLastMessage(`\n\nError: ${error}`)
     },
   })
@@ -96,6 +107,7 @@ export default function Home() {
               messages={messages}
               isStreaming={isStreaming}
               onSendMessage={handleSendMessage}
+              statusMessage={statusMessage}
             />
           </main>
 

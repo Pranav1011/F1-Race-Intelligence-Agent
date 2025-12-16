@@ -14,6 +14,8 @@ class ChartType(str, Enum):
     GAP_EVOLUTION = "gap_evolution"         # Gap to leader over laps
     BAR_CHART = "bar_chart"                 # Generic bar chart
     TABLE = "table"                         # Data table
+    RACE_PROGRESS = "race_progress"         # Animated race replay with car icons
+    LAP_COMPARISON = "lap_comparison"       # Head-to-head lap time comparison
 
 
 class LapAnalysis(BaseModel):

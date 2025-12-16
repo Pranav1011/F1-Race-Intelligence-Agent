@@ -15,6 +15,7 @@ type QueryContext =
 interface TypingIndicatorProps {
   queryContext?: QueryContext
   toolInProgress?: string
+  customMessage?: string | null
 }
 
 // F1-themed thinking messages by context
@@ -94,6 +95,7 @@ const TOOL_MESSAGES: Record<string, string[]> = {
 export function TypingIndicator({
   queryContext = 'general',
   toolInProgress,
+  customMessage,
 }: TypingIndicatorProps) {
   const [messageIndex, setMessageIndex] = useState(0)
   const [showFunMessage, setShowFunMessage] = useState(false)
@@ -108,8 +110,11 @@ export function TypingIndicator({
     return THINKING_MESSAGES[queryContext] || THINKING_MESSAGES.general
   }, [queryContext, toolInProgress])
 
-  // Rotate through messages
+  // Rotate through messages (only when no custom message)
   useEffect(() => {
+    // Don't rotate if we have a custom message from the server
+    if (customMessage) return
+
     const interval = setInterval(() => {
       // 10% chance to show a fun message
       if (Math.random() < 0.1 && !showFunMessage) {
@@ -122,11 +127,14 @@ export function TypingIndicator({
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [messages.length, showFunMessage])
+  }, [messages.length, showFunMessage, customMessage])
 
-  const currentMessage = showFunMessage
-    ? FUN_MESSAGES[messageIndex % FUN_MESSAGES.length]
-    : messages[messageIndex % messages.length]
+  // Use custom message from server if available, otherwise use rotating messages
+  const currentMessage = customMessage
+    ? customMessage
+    : showFunMessage
+      ? FUN_MESSAGES[messageIndex % FUN_MESSAGES.length]
+      : messages[messageIndex % messages.length]
 
   return (
     <div className="flex justify-start mb-4">

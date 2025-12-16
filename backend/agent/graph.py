@@ -4,11 +4,21 @@ Agent Graph
 Enhanced LangGraph graph definition for the F1 Race Intelligence Agent.
 
 Architecture:
-UNDERSTAND → PLAN → EXECUTE → PROCESS → EVALUATE → GENERATE
+UNDERSTAND → PLAN → EXECUTE → PROCESS → EVALUATE → ENRICH → GENERATE → VALIDATE → END
                                           ↓
                                     [is_sufficient?]
                                     NO → back to PLAN (CRAG pattern)
-                                    YES → GENERATE → END
+                                    YES → ENRICH → GENERATE → VALIDATE → END
+
+Nodes:
+- UNDERSTAND: Parse query, extract entities, generate HyDE
+- PLAN: Create tool execution DAG with parallel groups
+- EXECUTE: Run tools concurrently
+- PROCESS: Aggregate raw data into analysis
+- EVALUATE: Check data quality (CRAG loop if insufficient)
+- ENRICH: Fetch RAG context (race reports, Reddit, regulations)
+- GENERATE: Create response with visualization using enriched context
+- VALIDATE: Verify response quality before returning
 
 Memory Integration:
 - User context is loaded from Mem0 before UNDERSTAND
@@ -36,7 +46,9 @@ from agent.nodes import (
     process_data,
     evaluate_data,
     should_continue,
+    enrich_context,
     generate_response,
+    validate_response,
 )
 from agent.tools.timescale_tools import TIMESCALE_TOOLS
 from agent.tools.neo4j_tools import NEO4J_TOOLS
@@ -78,7 +90,9 @@ def create_enhanced_agent_graph(
     graph.add_node("execute", _execute_node)
     graph.add_node("process", process_data)
     graph.add_node("evaluate", evaluate_data)
+    graph.add_node("enrich", enrich_context)
     graph.add_node("generate", partial(_generate_node, llm_router=llm_router))
+    graph.add_node("validate", partial(_validate_node, llm_router=llm_router))
 
     # Set entry point
     graph.set_entry_point("understand")
@@ -91,20 +105,22 @@ def create_enhanced_agent_graph(
 
     # Add conditional edge from evaluate (CRAG pattern)
     # If data is insufficient, loop back to plan
-    # If sufficient, continue to generate
+    # If sufficient, continue to enrich (then generate)
     graph.add_conditional_edges(
         "evaluate",
         should_continue,
         {
             "plan": "plan",      # Loop back for more data
-            "generate": "generate",  # Continue to response
+            "generate": "enrich",  # Continue to enrich with RAG context
         },
     )
 
-    # Final edge to end
-    graph.add_edge("generate", END)
+    # Enrich → Generate → Validate → END
+    graph.add_edge("enrich", "generate")
+    graph.add_edge("generate", "validate")
+    graph.add_edge("validate", END)
 
-    logger.info("Enhanced agent graph created with CRAG evaluation loop")
+    logger.info("Enhanced agent graph created with ENRICH and VALIDATE nodes")
     return graph.compile()
 
 
@@ -142,6 +158,14 @@ async def _generate_node(
     return await generate_response(state, llm_router)
 
 
+async def _validate_node(
+    state: EnhancedAgentState,
+    llm_router: LLMRouter,
+) -> dict[str, Any]:
+    """Wrapper for validate_response node."""
+    return await validate_response(state, llm_router)
+
+
 # Keep old function name for backwards compatibility
 create_agent_graph = create_enhanced_agent_graph
 
@@ -160,6 +184,7 @@ class F1Agent:
 
     def __init__(
         self,
+        openai_api_key: str | None = None,
         deepseek_api_key: str | None = None,
         groq_api_key: str | None = None,
         google_api_key: str | None = None,
@@ -176,7 +201,8 @@ class F1Agent:
         Initialize the F1 Agent.
 
         Args:
-            deepseek_api_key: DeepSeek API key (primary LLM - best reasoning)
+            openai_api_key: OpenAI API key (primary LLM - GPT-4)
+            deepseek_api_key: DeepSeek API key (backup - good reasoning)
             groq_api_key: Groq API key (fast backup)
             google_api_key: Google API key (backup LLM)
             ollama_base_url: Ollama server URL (local fallback)
@@ -188,6 +214,7 @@ class F1Agent:
             memory_llm_provider: LLM provider for Mem0 memory extraction
         """
         self.config = LLMConfig(
+            openai_api_key=openai_api_key,
             deepseek_api_key=deepseek_api_key,
             groq_api_key=groq_api_key,
             google_api_key=google_api_key,
@@ -264,6 +291,7 @@ class F1Agent:
         message: str,
         session_id: str,
         user_id: str | None = None,
+        status_callback = None,
     ) -> dict[str, Any]:
         """
         Process a user message and generate a response.
@@ -282,10 +310,18 @@ class F1Agent:
             message: User's message
             session_id: Session identifier
             user_id: Optional user identifier
+            status_callback: Optional async callback for status updates (stage, message)
 
         Returns:
             Response dict with analysis, visualization, and metadata
         """
+        # Helper to send status if callback is provided
+        async def send_status(stage: str, message: str):
+            if status_callback:
+                try:
+                    await status_callback(stage, message)
+                except Exception as e:
+                    logger.debug(f"Status callback error: {e}")
         logger.info(f"Processing message in session {session_id}")
 
         # Load memory context
@@ -333,12 +369,33 @@ class F1Agent:
             logger.debug(f"Langfuse handler not available: {e}")
 
         try:
-            # Run the enhanced graph with optional tracing
+            # Run the enhanced graph with streaming for status updates
             config = {}
             if langfuse_handler:
                 config["callbacks"] = [langfuse_handler]
 
-            result = await self.graph.ainvoke(state, config=config)
+            # Map node names to F1 pit wall radio style status messages
+            node_status_messages = {
+                "understand": ("understanding", "Copy, we are checking..."),
+                "plan": ("planning", "Analyzing strategy... Plan A, B, or C?"),
+                "execute": ("executing", "Braking late into the data..."),
+                "process": ("processing", "Overtaking from the outside..."),
+                "evaluate": ("evaluating", "Box box, we are getting to you..."),
+                "enrich": ("enriching", "Adding context, stay focused..."),
+                "generate": ("generating", "Hammer time, composing response..."),
+                "validate": ("validating", "Final sector, P1 in sight..."),
+            }
+
+            # Stream through the graph nodes for live status updates
+            result = state
+            async for event in self.graph.astream(state, config=config, stream_mode="updates"):
+                # event is a dict with node name as key
+                for node_name, node_output in event.items():
+                    result.update(node_output)
+                    # Send status update for this node
+                    if node_name in node_status_messages:
+                        stage, msg = node_status_messages[node_name]
+                        await send_status(stage, msg)
 
             # Update session state
             self._sessions[session_id] = result
@@ -346,6 +403,7 @@ class F1Agent:
             # Extract query understanding for response
             understanding = result.get("query_understanding", {})
             evaluation = result.get("evaluation", {})
+            validation = result.get("validation_result", {})
             analysis_result = result.get("analysis_result", "")
 
             # Store to memory (async, don't block response)
@@ -391,6 +449,8 @@ class F1Agent:
                 "response_type": result.get("response_type", "TEXT"),
                 "visualization": result.get("visualization_spec"),
                 "confidence": evaluation.get("score", 0.0),
+                "validation_score": validation.get("score", 0.0) if validation else None,
+                "validation_issues": validation.get("issues", []) if validation else [],
                 "iterations": result.get("iteration_count", 0),
                 "session_id": session_id,
                 "error": result.get("error"),
@@ -451,6 +511,7 @@ _agent: F1Agent | None = None
 
 
 def get_agent(
+    openai_api_key: str | None = None,
     deepseek_api_key: str | None = None,
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
@@ -463,7 +524,8 @@ def get_agent(
     Get or create the singleton F1Agent instance.
 
     Args:
-        deepseek_api_key: DeepSeek API key (primary)
+        openai_api_key: OpenAI API key (primary - GPT-4)
+        deepseek_api_key: DeepSeek API key (backup)
         groq_api_key: Groq API key (fast backup)
         google_api_key: Google API key
         ollama_base_url: Ollama server URL
@@ -477,6 +539,7 @@ def get_agent(
     global _agent
     if _agent is None:
         _agent = F1Agent(
+            openai_api_key=openai_api_key,
             deepseek_api_key=deepseek_api_key,
             groq_api_key=groq_api_key,
             google_api_key=google_api_key,
