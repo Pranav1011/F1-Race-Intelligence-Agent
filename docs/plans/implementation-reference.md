@@ -646,9 +646,9 @@ Server → Client: {"type": "done"}
 2. **Data Pipeline** ✅ - FastF1 → TimescaleDB → Neo4j ingestion
 3. **Agent Core** ✅ - LangGraph + LLM Router (Groq primary) + tools + Chat API
 4. **Frontend UI** ✅ - WebSocket streaming + sessions + artifact panel + Zustand
-5. **RAG System** - Qdrant + hybrid retrieval + reranking
-6. **Memory** - Mem0 + Redis session state
-7. **Observability** - Langfuse + Sentry + hardening
+5. **RAG System** ✅ - Qdrant + hybrid retrieval + Cohere reranking
+6. **Memory** ✅ - Mem0 + Redis session state
+7. **Observability** ✅ - Langfuse v3 tracing + Sentry error monitoring
 
 ---
 
