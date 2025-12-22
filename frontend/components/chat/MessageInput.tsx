@@ -85,12 +85,12 @@ export function MessageInput({
         <div
           className={`relative flex items-end gap-3 rounded-2xl transition-all duration-300 ${
             isFocused
-              ? 'bg-background-secondary'
-              : 'bg-background-tertiary/50'
+              ? 'bg-surface'
+              : 'bg-surface/50'
           }`}
           style={{
             boxShadow: isFocused
-              ? '0 0 30px rgba(225, 6, 0, 0.15), inset 0 0 0 1px rgba(255,255,255,0.1)'
+              ? '0 0 30px rgba(227, 25, 55, 0.15), inset 0 0 0 1px rgba(255,255,255,0.1)'
               : 'inset 0 0 0 1px rgba(255,255,255,0.05)',
           }}
         >
@@ -109,7 +109,7 @@ export function MessageInput({
               placeholder={placeholder}
               disabled={disabled}
               rows={1}
-              className="w-full resize-none bg-transparent text-white placeholder-f1-gray/40
+              className="w-full resize-none bg-transparent text-text-primary placeholder-text-muted/50
                          text-sm leading-relaxed focus:outline-none disabled:opacity-50
                          disabled:cursor-not-allowed max-h-[150px] scrollbar-thin"
             />
@@ -121,7 +121,7 @@ export function MessageInput({
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="p-2 text-f1-gray/50 hover:text-white/70 transition-colors rounded-lg
+              className="p-2 text-text-muted hover:text-text-secondary transition-colors rounded-lg
                          hover:bg-white/5"
               title="Voice input (coming soon)"
             >
@@ -136,12 +136,12 @@ export function MessageInput({
               whileTap={canSubmit ? { scale: 0.95 } : {}}
               className={`relative p-3 rounded-xl transition-all duration-300 ${
                 canSubmit
-                  ? 'bg-gradient-to-r from-f1-red to-red-600 text-white shadow-lg'
-                  : 'bg-white/5 text-f1-gray/30 cursor-not-allowed'
+                  ? 'bg-gradient-to-r from-f1-red to-f1-redLight text-white shadow-lg'
+                  : 'bg-white/5 text-text-muted/30 cursor-not-allowed'
               }`}
               style={{
                 boxShadow: canSubmit
-                  ? '0 4px 20px rgba(225, 6, 0, 0.4)'
+                  ? '0 4px 20px rgba(227, 25, 55, 0.4)'
                   : 'none',
               }}
             >
@@ -161,17 +161,17 @@ export function MessageInput({
 
       {/* Keyboard hints */}
       <div className="flex items-center justify-between mt-2 px-2">
-        <div className="flex items-center gap-4 text-xs text-f1-gray/40">
+        <div className="flex items-center gap-4 text-xs text-text-muted/60">
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] font-mono">Enter</kbd>
+            <kbd className="px-1.5 py-0.5 bg-surface rounded text-[10px] font-mono text-text-secondary">Enter</kbd>
             <span>to send</span>
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] font-mono">Shift + Enter</kbd>
+            <kbd className="px-1.5 py-0.5 bg-surface rounded text-[10px] font-mono text-text-secondary">Shift + Enter</kbd>
             <span>new line</span>
           </span>
         </div>
-        <div className="flex items-center gap-1 text-xs text-f1-gray/40">
+        <div className="flex items-center gap-1 text-xs text-text-muted/60">
           <Zap className="w-3 h-3 text-f1-red" />
           <span>Powered by F1 Intelligence</span>
         </div>

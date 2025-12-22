@@ -12,33 +12,33 @@ const SUGGESTED_PROMPTS = [
     icon: Trophy,
     text: 'Who won the 2024 Bahrain GP?',
     category: 'Race Results',
-    gradient: 'from-yellow-500/20 to-orange-500/20',
-    borderColor: 'border-yellow-500/30',
-    iconColor: 'text-yellow-400',
+    gradient: 'from-accent-orange/15 to-data-warning/15',
+    borderColor: 'border-accent-orange/20',
+    iconColor: 'text-accent-orange',
   },
   {
     icon: TrendingUp,
     text: "Compare Verstappen and Norris's lap times at Monaco 2024",
     category: 'Head-to-Head',
-    gradient: 'from-blue-500/20 to-purple-500/20',
-    borderColor: 'border-blue-500/30',
-    iconColor: 'text-blue-400',
+    gradient: 'from-accent-blue/15 to-accent-purple/15',
+    borderColor: 'border-accent-blue/20',
+    iconColor: 'text-accent-blue',
   },
   {
     icon: Gauge,
     text: "Why did Ferrari's strategy fail at Silverstone?",
     category: 'Strategy Analysis',
-    gradient: 'from-red-500/20 to-pink-500/20',
-    borderColor: 'border-red-500/30',
-    iconColor: 'text-red-400',
+    gradient: 'from-f1-red/15 to-accent-purple/15',
+    borderColor: 'border-f1-red/20',
+    iconColor: 'text-f1-red',
   },
   {
     icon: Timer,
     text: 'Show me the fastest pit stops of 2024',
     category: 'Statistics',
-    gradient: 'from-green-500/20 to-emerald-500/20',
-    borderColor: 'border-green-500/30',
-    iconColor: 'text-green-400',
+    gradient: 'from-accent-emerald/15 to-accent-cyan/15',
+    borderColor: 'border-accent-emerald/20',
+    iconColor: 'text-accent-emerald',
   },
 ]
 
@@ -78,10 +78,10 @@ export function SuggestedPrompts({ onSelect }: SuggestedPromptsProps) {
 
             {/* Text content */}
             <div className="relative flex-1 min-w-0">
-              <p className="text-sm text-white/90 group-hover:text-white transition-colors line-clamp-2 pr-6">
+              <p className="text-sm text-text-primary/90 group-hover:text-text-primary transition-colors line-clamp-2 pr-6">
                 {prompt.text}
               </p>
-              <p className="text-xs text-f1-gray/70 mt-2 flex items-center gap-1">
+              <p className="text-xs text-text-muted mt-2 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-current" />
                 {prompt.category}
               </p>

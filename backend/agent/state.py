@@ -25,6 +25,9 @@ class EnhancedAgentState(TypedDict):
     # Conversation history (uses add_messages reducer for appending)
     messages: Annotated[list[BaseMessage], add_messages]
 
+    # Preprocessing hints (from QueryPreprocessor)
+    preprocessed_query: dict  # Intent, entities, corrections, hints
+
     # UNDERSTAND node output
     query_understanding: dict  # Serialized QueryUnderstanding schema
 
@@ -72,6 +75,7 @@ def create_initial_state(
     """Create initial agent state for a new session."""
     return EnhancedAgentState(
         messages=[],
+        preprocessed_query={},
         query_understanding={},
         data_plan={},
         raw_data={},

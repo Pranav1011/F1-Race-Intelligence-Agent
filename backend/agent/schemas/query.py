@@ -9,16 +9,22 @@ class AnalysisScope(str, Enum):
     SINGLE_LAP = "single_lap"       # One specific lap
     STINT = "stint"                  # One tire stint
     FULL_RACE = "full_race"          # Entire race
-    MULTI_RACE = "multi_race"        # Multiple races/season
+    MULTI_RACE = "multi_race"        # Multiple races
+    FULL_SEASON = "full_season"      # Entire season aggregation
+    MULTI_SEASON = "multi_season"    # Multiple seasons comparison
     QUALIFYING = "qualifying"        # Qualifying session
     PRACTICE = "practice"            # Practice session
 
 
 class AnalysisType(str, Enum):
     """Type of analysis requested."""
-    COMPARISON = "comparison"        # Driver vs driver
+    COMPARISON = "comparison"        # Driver vs driver (2 drivers)
+    DOMINANCE = "dominance"          # Driver(s) vs the field
     STRATEGY = "strategy"            # Pit stops, tire choice
     PACE = "pace"                    # Lap times, consistency
+    TREND = "trend"                  # Performance trend over time
+    TEAM_BATTLE = "team_battle"      # Team vs team comparison
+    RACE_CRAFT = "race_craft"        # Qualifying vs race positions
     TELEMETRY = "telemetry"          # Speed traces, braking
     INCIDENT = "incident"            # Crashes, penalties
     PREDICTION = "prediction"        # Future predictions

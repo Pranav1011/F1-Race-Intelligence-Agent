@@ -27,7 +27,7 @@ const RadioWave = () => (
     {[...Array(5)].map((_, i) => (
       <motion.div
         key={i}
-        className="w-0.5 bg-green-400 rounded-full"
+        className="w-0.5 bg-accent-emerald rounded-full"
         animate={{
           height: [4, 12, 4, 16, 4],
           opacity: [0.5, 1, 0.5, 1, 0.5],
@@ -83,9 +83,9 @@ export function StatusIndicator({ message, isActive }: StatusIndicatorProps) {
         <div
           className="relative overflow-hidden rounded-2xl rounded-bl-md"
           style={{
-            background: 'linear-gradient(135deg, rgba(20, 20, 20, 0.95) 0%, rgba(30, 30, 30, 0.95) 100%)',
-            border: '1px solid rgba(0, 255, 100, 0.2)',
-            boxShadow: '0 0 20px rgba(0, 255, 100, 0.1), inset 0 0 30px rgba(0, 0, 0, 0.3)',
+            background: 'linear-gradient(135deg, rgba(22, 22, 30, 0.95) 0%, rgba(18, 18, 26, 0.95) 100%)',
+            border: '1px solid rgba(16, 185, 129, 0.2)',
+            boxShadow: '0 0 20px rgba(16, 185, 129, 0.1), inset 0 0 30px rgba(0, 0, 0, 0.3)',
           }}
         >
           {/* Animated border glow */}
@@ -93,7 +93,7 @@ export function StatusIndicator({ message, isActive }: StatusIndicatorProps) {
             className="absolute inset-0 rounded-2xl"
             style={{
               border: '1px solid transparent',
-              background: 'linear-gradient(90deg, transparent, rgba(0, 255, 100, 0.3), transparent)',
+              background: 'linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.3), transparent)',
               backgroundSize: '200% 100%',
             }}
             animate={{
@@ -111,11 +111,11 @@ export function StatusIndicator({ message, isActive }: StatusIndicatorProps) {
             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
               <div className="flex items-center gap-1.5">
                 <motion.div
-                  className="w-2 h-2 rounded-full bg-green-400"
+                  className="w-2 h-2 rounded-full bg-accent-emerald"
                   animate={{ opacity: [1, 0.3, 1] }}
                   transition={{ duration: 1, repeat: Infinity }}
                 />
-                <span className="text-green-400 text-xs font-mono uppercase tracking-wider">
+                <span className="text-accent-emerald text-xs font-mono uppercase tracking-wider">
                   PITWALL RADIO
                 </span>
               </div>
@@ -141,7 +141,7 @@ export function StatusIndicator({ message, isActive }: StatusIndicatorProps) {
                   transition={{ duration: 0.3 }}
                   className="flex-1"
                 >
-                  <p className="text-white/90 font-medium text-sm">
+                  <p className="text-text-primary font-medium text-sm">
                     {message}
                   </p>
                 </motion.div>
@@ -151,7 +151,7 @@ export function StatusIndicator({ message, isActive }: StatusIndicatorProps) {
             {/* Loading bar at bottom */}
             <div className="mt-3 h-1 bg-white/10 rounded-full overflow-hidden">
               <motion.div
-                className="h-full bg-gradient-to-r from-green-400/50 via-green-400 to-green-400/50"
+                className="h-full bg-gradient-to-r from-accent-emerald/50 via-accent-emerald to-accent-emerald/50"
                 animate={{
                   x: ['-100%', '100%'],
                 }}
@@ -167,7 +167,7 @@ export function StatusIndicator({ message, isActive }: StatusIndicatorProps) {
         </div>
 
         {/* Decorative elements */}
-        <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-transparent via-green-400/50 to-transparent rounded-full" />
+        <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-transparent via-accent-emerald/50 to-transparent rounded-full" />
       </div>
     </motion.div>
   )

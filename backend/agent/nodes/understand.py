@@ -51,6 +51,8 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
     Uses HyDE (Hypothetical Document Embeddings) to generate what an
     ideal answer would look like, guiding data retrieval.
 
+    Now enhanced with preprocessing hints for faster, more accurate understanding.
+
     Args:
         state: Current agent state
         llm_router: LLM router for inference
@@ -61,6 +63,7 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
     user_message = get_last_human_message(state)
     conversation_history = format_conversation_history(state)
     user_context = state.get("user_context", "")
+    preprocessed = state.get("preprocessed_query", {})
 
     # Add breadcrumb for observability
     if SENTRY_AVAILABLE:
@@ -68,14 +71,43 @@ async def understand_query(state: dict, llm_router: LLMRouter) -> dict[str, Any]
             message=f"UNDERSTAND node processing query: {user_message[:100]}...",
             category="agent",
             level="info",
-            data={"user_context_length": len(user_context)},
+            data={
+                "user_context_length": len(user_context),
+                "has_preprocessing": bool(preprocessed),
+            },
         )
+
+    # Build preprocessing hints for the LLM
+    preprocessing_hints = ""
+    if preprocessed:
+        hints_parts = []
+        if preprocessed.get("intent"):
+            hints_parts.append(f"Detected intent: {preprocessed['intent']} (confidence: {preprocessed.get('intent_confidence', 0):.2f})")
+        if preprocessed.get("drivers"):
+            hints_parts.append(f"Detected drivers: {', '.join(preprocessed['drivers'])}")
+        if preprocessed.get("teams"):
+            hints_parts.append(f"Detected teams: {', '.join(preprocessed['teams'])}")
+        if preprocessed.get("circuits"):
+            hints_parts.append(f"Detected circuits: {', '.join(preprocessed['circuits'])}")
+        if preprocessed.get("year"):
+            hints_parts.append(f"Year: {preprocessed['year']}")
+        if preprocessed.get("is_comparison"):
+            hints_parts.append(f"This is a comparison query ({preprocessed.get('comparison_type', 'driver')} comparison)")
+        if preprocessed.get("corrections"):
+            corrections = preprocessed["corrections"]
+            corrections_str = ", ".join([f"'{c['original']}' → '{c['corrected']}'" for c in corrections])
+            hints_parts.append(f"Typo corrections applied: {corrections_str}")
+        if preprocessed.get("suggested_tools"):
+            hints_parts.append(f"Suggested tools: {', '.join(preprocessed['suggested_tools'][:3])}")
+
+        if hints_parts:
+            preprocessing_hints = "\n\nPREPROCESSING HINTS (use these to speed up understanding):\n" + "\n".join(f"- {h}" for h in hints_parts)
 
     prompt = UNDERSTAND_PROMPT.format(
         user_message=user_message,
         conversation_history=conversation_history,
         user_context=user_context,
-    )
+    ) + preprocessing_hints
 
     try:
         # Use router's ainvoke for automatic fallback on rate limits

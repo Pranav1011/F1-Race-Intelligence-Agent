@@ -28,6 +28,7 @@ interface ChatStore {
   createSession: () => string
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
+  clearAllSessions: () => void
   renameSession: (id: string, title: string) => void
   addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => void
   updateLastMessage: (updates: Partial<Message>) => void
@@ -94,6 +95,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })
 
     get().saveToStorage()
+  },
+
+  clearAllSessions: () => {
+    set({
+      sessions: [],
+      activeSessionId: null,
+    })
+    get().saveToStorage()
+    // Create a fresh session after clearing
+    get().createSession()
   },
 
   renameSession: (id: string, title: string) => {

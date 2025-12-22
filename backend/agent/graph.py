@@ -292,25 +292,28 @@ class F1Agent:
         session_id: str,
         user_id: str | None = None,
         status_callback = None,
+        preprocessed: dict | None = None,
     ) -> dict[str, Any]:
         """
         Process a user message and generate a response.
 
         The enhanced agent flow:
-        0. MEMORY: Load user context from Mem0, session context from Redis
-        1. UNDERSTAND: Parse query, extract entities, generate HyDE
-        2. PLAN: Create tool execution DAG with parallel groups
-        3. EXECUTE: Run tools concurrently
-        4. PROCESS: Aggregate raw data into analysis
-        5. EVALUATE: Check data quality (CRAG loop if insufficient)
-        6. GENERATE: Create response with visualization
-        7. MEMORY: Store conversation to Mem0 for future context
+        0. PREPROCESS: Fuzzy matching, intent classification, entity extraction (done before this)
+        1. MEMORY: Load user context from Mem0, session context from Redis
+        2. UNDERSTAND: Parse query, extract entities, generate HyDE (uses preprocessing hints)
+        3. PLAN: Create tool execution DAG with parallel groups
+        4. EXECUTE: Run tools concurrently
+        5. PROCESS: Aggregate raw data into analysis
+        6. EVALUATE: Check data quality (CRAG loop if insufficient)
+        7. GENERATE: Create response with visualization
+        8. MEMORY: Store conversation to Mem0 for future context
 
         Args:
             message: User's message
             session_id: Session identifier
             user_id: Optional user identifier
             status_callback: Optional async callback for status updates (stage, message)
+            preprocessed: Optional preprocessed query info (from QueryPreprocessor)
 
         Returns:
             Response dict with analysis, visualization, and metadata
@@ -352,6 +355,12 @@ class F1Agent:
 
         # Add user message
         state["messages"].append(HumanMessage(content=message))
+
+        # Add preprocessed query hints if available
+        if preprocessed:
+            state["preprocessed_query"] = preprocessed
+            logger.debug(f"Using preprocessed hints: intent={preprocessed.get('intent')}, "
+                        f"drivers={preprocessed.get('drivers')}")
 
         # Get Langfuse callback handler for tracing
         langfuse_handler = None
@@ -404,6 +413,7 @@ class F1Agent:
             understanding = result.get("query_understanding", {})
             evaluation = result.get("evaluation", {})
             validation = result.get("validation_result", {})
+            processed_analysis = result.get("processed_analysis", {})
             analysis_result = result.get("analysis_result", "")
 
             # Store to memory (async, don't block response)
@@ -442,13 +452,19 @@ class F1Agent:
                 except Exception as e:
                     logger.warning(f"Error updating session state: {e}")
 
+            # Calculate confidence - use the higher of completeness or processed confidence
+            completeness = evaluation.get("score", 0.0)
+            data_confidence = processed_analysis.get("confidence_score", 0.0)
+            # Use the higher confidence (both measure data quality differently)
+            final_confidence = max(completeness, data_confidence)
+
             # Build response
             response = {
                 "message": analysis_result,
                 "query_type": understanding.get("query_type", "unknown"),
                 "response_type": result.get("response_type", "TEXT"),
                 "visualization": result.get("visualization_spec"),
-                "confidence": evaluation.get("score", 0.0),
+                "confidence": final_confidence,
                 "validation_score": validation.get("score", 0.0) if validation else None,
                 "validation_issues": validation.get("issues", []) if validation else [],
                 "iterations": result.get("iteration_count", 0),

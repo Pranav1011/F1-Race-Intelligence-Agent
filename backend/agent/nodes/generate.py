@@ -6,7 +6,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from agent.schemas.query import QueryUnderstanding
-from agent.schemas.analysis import ProcessedAnalysis, ChartType
+from agent.schemas.analysis import ProcessedAnalysis
 from agent.prompts.generate import GENERATE_SYSTEM, GENERATE_PROMPT
 from agent.processors.visualization import generate_viz_spec
 from agent.llm import LLMRouter
@@ -61,11 +61,13 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
     comparison_str = _format_comparisons(processed)
     insights_str = "\n".join(f"- {i}" for i in processed.key_insights) or "No key insights computed"
 
+    # Format RAW tool results - this is critical for data-driven responses
+    raw_tool_results_str = _format_raw_tool_results(state.get("raw_data", {}))
+
     # Format enriched context
     race_context_str = _format_race_context(enriched_context.get("race_context", []))
     community_str = _format_community_insights(enriched_context.get("community_insights", []))
     regulations_str = _format_regulations(enriched_context.get("regulations", []))
-    similar_str = _format_similar_analyses(enriched_context.get("similar_analyses", []))
 
     # Check if we're generating a visualization
     viz_note = ""
@@ -74,6 +76,7 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
 
     prompt = GENERATE_PROMPT.format(
         user_query=user_query,
+        raw_tool_results=raw_tool_results_str,
         lap_analysis=lap_analysis_str,
         stint_summaries=stint_str,
         comparisons=comparison_str,
@@ -84,7 +87,6 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
         race_context=race_context_str,
         community_insights=community_str,
         regulations=regulations_str,
-        similar_analyses=similar_str,
     )
 
     try:
@@ -143,6 +145,55 @@ async def generate_response(state: dict, llm_router: LLMRouter) -> dict[str, Any
             "visualization_spec": None,
             "error": str(e),
         }
+
+
+def _format_raw_tool_results(raw_data: dict) -> str:
+    """
+    Format raw tool results for the prompt.
+    This passes the ACTUAL DATA to the LLM for data-driven responses.
+    """
+    if not raw_data:
+        return "No raw tool data available"
+
+    import json
+
+    lines = []
+    for tool_id, result in raw_data.items():
+        # Skip empty results or errors
+        if not result:
+            continue
+        if isinstance(result, list) and len(result) > 0:
+            first_item = result[0]
+            if isinstance(first_item, dict) and "error" in first_item:
+                lines.append(f"### {tool_id}\nError: {first_item.get('error')}")
+                continue
+
+        # Format the tool result
+        lines.append(f"### {tool_id}")
+
+        if isinstance(result, list):
+            # For lists (like pit stops, lap times), show first 20 items
+            if len(result) > 0:
+                # Check if it's a simple list of dicts - format as table
+                if isinstance(result[0], dict):
+                    # Show first 20 results
+                    display_results = result[:20]
+                    lines.append(f"(Showing {len(display_results)} of {len(result)} results)")
+                    lines.append("```json")
+                    lines.append(json.dumps(display_results, indent=2, default=str))
+                    lines.append("```")
+                else:
+                    lines.append(str(result[:20]))
+        elif isinstance(result, dict):
+            lines.append("```json")
+            lines.append(json.dumps(result, indent=2, default=str))
+            lines.append("```")
+        else:
+            lines.append(str(result))
+
+        lines.append("")  # Empty line between tools
+
+    return "\n".join(lines) if lines else "No raw tool data available"
 
 
 def _format_lap_analysis(processed: ProcessedAnalysis) -> str:
@@ -278,7 +329,10 @@ def _extract_lap_times_for_viz(state: dict) -> dict[str, list[dict]]:
     lap_times = {}
 
     for tool_id, result in raw_data.items():
-        if "laps" in tool_id.lower() or "lap_times" in tool_id.lower():
+        tool_lower = tool_id.lower()
+
+        # Handle standard lap times data
+        if "laps" in tool_lower or "lap_times" in tool_lower:
             # Extract driver code from tool_id
             parts = tool_id.split("_")
             driver = None
@@ -291,5 +345,41 @@ def _extract_lap_times_for_viz(state: dict) -> dict[str, list[dict]]:
                 lap_times[driver] = result
             elif driver and isinstance(result, dict) and "data" in result:
                 lap_times[driver] = result["data"]
+
+        # Handle head-to-head comparison data
+        elif "head_to_head" in tool_lower or "h2h" in tool_lower or "compare" in tool_lower:
+            if isinstance(result, list) and len(result) > 0:
+                # Head-to-head data contains lap-by-lap comparisons
+                # Extract and structure for visualization
+                for h2h in result:
+                    if not isinstance(h2h, dict):
+                        continue
+
+                    driver_1 = h2h.get("driver_1", "")
+                    driver_2 = h2h.get("driver_2", "")
+
+                    # Check if we have lap-by-lap data in the h2h result
+                    lap_data = h2h.get("lap_data", [])
+                    if lap_data:
+                        # Structure lap data per driver
+                        if driver_1 and driver_1 not in lap_times:
+                            lap_times[driver_1] = []
+                        if driver_2 and driver_2 not in lap_times:
+                            lap_times[driver_2] = []
+
+                        for lap in lap_data:
+                            lap_num = lap.get("lap_number", lap.get("lap", 0))
+                            if driver_1:
+                                lap_times[driver_1].append({
+                                    "lap_number": lap_num,
+                                    "lap_time": lap.get(f"{driver_1}_time") or lap.get("driver_1_time"),
+                                    "lap_time_seconds": lap.get(f"{driver_1}_time") or lap.get("driver_1_time"),
+                                })
+                            if driver_2:
+                                lap_times[driver_2].append({
+                                    "lap_number": lap_num,
+                                    "lap_time": lap.get(f"{driver_2}_time") or lap.get("driver_2_time"),
+                                    "lap_time_seconds": lap.get(f"{driver_2}_time") or lap.get("driver_2_time"),
+                                })
 
     return lap_times

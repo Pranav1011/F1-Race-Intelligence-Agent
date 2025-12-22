@@ -9,18 +9,39 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Core palette
+        // Core palette - Modern dark theme with better contrast
         background: {
-          primary: "#0F0F0F",
-          secondary: "#1A1A1A",
-          tertiary: "#252525",
+          primary: "#0A0A0F",      // Deep navy-black
+          secondary: "#12121A",    // Slightly lighter
+          tertiary: "#1A1A24",     // Card backgrounds
+          elevated: "#22222E",     // Elevated surfaces
         },
 
-        // F1 accent colors
+        // Surface colors for cards and panels
+        surface: {
+          DEFAULT: "#16161E",
+          hover: "#1E1E28",
+          active: "#262630",
+          border: "rgba(255, 255, 255, 0.08)",
+        },
+
+        // F1 accent colors - Vibrant but refined
         f1: {
-          red: "#E10600",
+          red: "#E31937",          // Slightly warmer red
+          redLight: "#FF2D4D",     // Brighter variant
+          redDark: "#B81530",      // Darker variant
           white: "#FFFFFF",
-          gray: "#949498",
+          gray: "#8B8B97",
+          grayLight: "#A8A8B3",
+        },
+
+        // Modern accent colors
+        accent: {
+          blue: "#3B82F6",
+          purple: "#8B5CF6",
+          cyan: "#06B6D4",
+          orange: "#F97316",
+          emerald: "#10B981",
         },
 
         // Team colors
@@ -37,12 +58,21 @@ const config: Config = {
           haas: "#B6BABD",
         },
 
-        // Data visualization
+        // Data visualization - More refined colors
         data: {
-          positive: "#00FF87",
-          negative: "#FF4444",
-          neutral: "#888888",
-          warning: "#FFB800",
+          positive: "#22C55E",     // Green success
+          negative: "#EF4444",     // Red error
+          neutral: "#71717A",      // Neutral gray
+          warning: "#FBBF24",      // Warning yellow
+          info: "#3B82F6",         // Info blue
+        },
+
+        // Text colors
+        text: {
+          primary: "#F9FAFB",
+          secondary: "#A1A1AA",
+          muted: "#71717A",
+          accent: "#E31937",
         },
 
         // Tire compounds

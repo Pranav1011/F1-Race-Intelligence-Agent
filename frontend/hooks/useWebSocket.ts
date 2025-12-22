@@ -1,11 +1,23 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import { WSIncomingMessage, WSOutgoingMessage, Visualization, MessageMetadata } from '@/types'
+import { WSIncomingMessage, WSOutgoingMessage, Visualization, MessageMetadata, QueryInterpretation } from '@/types'
 
 interface StatusUpdate {
   stage: string
   message: string
+  detail?: string
+  progress?: number
+}
+
+interface ToolUpdate {
+  toolId: string
+  toolName?: string
+  status: 'start' | 'progress' | 'end'
+  progress?: number
+  message?: string
+  success?: boolean
+  resultSummary?: string
 }
 
 interface UseWebSocketOptions {
@@ -15,12 +27,14 @@ interface UseWebSocketOptions {
   onMetadata?: (meta: MessageMetadata) => void
   onSessionId?: (sessionId: string) => void
   onStatus?: (status: StatusUpdate) => void
+  onInterpreted?: (interpretation: QueryInterpretation) => void
+  onToolUpdate?: (update: ToolUpdate) => void
   onDone?: () => void
   onError?: (error: string) => void
 }
 
 interface UseWebSocketReturn {
-  sendMessage: (content: string, sessionId: string) => void
+  sendMessage: (content: string, sessionId: string, userId?: string) => void
   isConnected: boolean
   isStreaming: boolean
   disconnect: () => void
@@ -34,6 +48,8 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     onMetadata,
     onSessionId,
     onStatus,
+    onInterpreted,
+    onToolUpdate,
     onDone,
     onError,
   } = options
@@ -52,7 +68,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
   }, [])
 
   const sendMessage = useCallback(
-    (content: string, sessionId: string) => {
+    (content: string, sessionId: string, userId?: string) => {
       // Close existing connection if any
       if (wsRef.current) {
         wsRef.current.close()
@@ -69,6 +85,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
           type: 'message',
           content,
           session_id: sessionId,
+          user_id: userId,
         }
         ws.send(JSON.stringify(message))
       }
@@ -81,6 +98,18 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
             case 'session':
               if (data.session_id && onSessionId) {
                 onSessionId(data.session_id)
+              }
+              break
+
+            case 'interpreted':
+              if (onInterpreted && data.original) {
+                onInterpreted({
+                  original: data.original,
+                  expanded: data.expanded || data.original,
+                  corrections: data.corrections || [],
+                  intent: data.intent || 'general',
+                  confidence: data.confidence || 0,
+                })
               }
               break
 
@@ -107,8 +136,47 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
               break
 
             case 'status':
-              if (data.stage && data.message && onStatus) {
-                onStatus({ stage: data.stage, message: data.message })
+              if (data.stage && onStatus) {
+                onStatus({
+                  stage: data.stage,
+                  message: data.message || '',
+                  detail: data.detail,
+                  progress: data.progress,
+                })
+              }
+              break
+
+            case 'tool_start':
+              if (onToolUpdate && data.tool_id) {
+                onToolUpdate({
+                  toolId: data.tool_id,
+                  toolName: data.tool_name,
+                  status: 'start',
+                  message: data.message,
+                })
+              }
+              break
+
+            case 'tool_progress':
+              if (onToolUpdate && data.tool_id) {
+                onToolUpdate({
+                  toolId: data.tool_id,
+                  status: 'progress',
+                  progress: data.progress,
+                  message: data.message,
+                })
+              }
+              break
+
+            case 'tool_end':
+              if (onToolUpdate && data.tool_id) {
+                onToolUpdate({
+                  toolId: data.tool_id,
+                  toolName: data.tool_name,
+                  status: 'end',
+                  success: data.success,
+                  resultSummary: data.result_summary,
+                })
               }
               break
 
@@ -146,7 +214,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
         wsRef.current = null
       }
     },
-    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onDone, onError]
+    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onInterpreted, onToolUpdate, onDone, onError]
   )
 
   return {
