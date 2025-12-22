@@ -51,7 +51,22 @@ async def process_data(state: dict) -> dict[str, Any]:
             continue
 
         # Process head-to-head comparison data (from get_head_to_head tool)
-        if "head_to_head" in tool_id.lower():
+        # Check multiple patterns: "head_to_head", "h2h", "head2head", "comparison"
+        tool_lower = tool_id.lower()
+        is_h2h_tool = (
+            "head_to_head" in tool_lower or
+            "h2h" in tool_lower or
+            "head2head" in tool_lower or
+            ("compare" in tool_lower and "driver" in tool_lower)
+        )
+
+        # Also detect h2h data by structure (has pace_delta, comparable_laps fields)
+        is_h2h_data = False
+        if isinstance(result, list) and len(result) > 0:
+            first_item = result[0] if isinstance(result[0], dict) else {}
+            is_h2h_data = "pace_delta" in first_item or "comparable_laps" in first_item
+
+        if is_h2h_tool or is_h2h_data:
             if isinstance(result, list) and len(result) > 0:
                 has_head_to_head = True
                 head_to_head_data.extend(result)
@@ -182,12 +197,17 @@ async def process_data(state: dict) -> dict[str, Any]:
     )
 
     # Calculate confidence score
-    processed.confidence_score = _calculate_confidence(processed, raw_data)
+    processed.confidence_score = _calculate_confidence(processed, raw_data, has_head_to_head)
 
-    # Select recommended visualizations
+    # Select recommended visualizations with smarter logic
+    has_lap_data = bool(lap_times_by_driver) or has_head_to_head
+    num_drivers = len(processed.lap_analysis)
+
     processed.recommended_viz = select_viz_type(
         understanding.query_type,
-        understanding.metrics
+        understanding.metrics,
+        num_drivers=num_drivers,
+        has_lap_data=has_lap_data,
     )
 
     logger.info(
@@ -258,7 +278,11 @@ def _calculate_completeness(
     return score / max_score if max_score > 0 else 0.5
 
 
-def _calculate_confidence(processed: ProcessedAnalysis, raw_data: dict) -> float:
+def _calculate_confidence(
+    processed: ProcessedAnalysis,
+    raw_data: dict,
+    has_head_to_head: bool = False,
+) -> float:
     """Calculate confidence in data quality."""
     # Count errors vs successful results
     error_count = len(processed.missing_data)
@@ -269,8 +293,22 @@ def _calculate_confidence(processed: ProcessedAnalysis, raw_data: dict) -> float
 
     success_rate = (total_count - error_count) / total_count
 
+    # For head-to-head comparisons, we have pre-computed high-quality data
+    if has_head_to_head and processed.key_insights:
+        # High confidence for h2h data with insights
+        return min(0.85 + (0.15 * success_rate), 1.0)
+
     # Penalize if we have very few data points
     total_laps = sum(a.total_laps for a in processed.lap_analysis.values())
-    lap_penalty = min(total_laps / 100, 1.0)  # Full confidence at 100+ laps
+
+    # More lenient lap threshold - 30 laps is reasonable for focused analysis
+    if total_laps >= 30:
+        lap_penalty = 1.0
+    elif total_laps >= 15:
+        lap_penalty = 0.8
+    elif total_laps >= 5:
+        lap_penalty = 0.6
+    else:
+        lap_penalty = min(total_laps / 30, 0.5)
 
     return success_rate * lap_penalty

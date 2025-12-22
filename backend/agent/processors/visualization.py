@@ -47,26 +47,93 @@ COMPOUND_COLORS = {
 }
 
 
-def select_viz_type(analysis_type: AnalysisType, metrics: list[str]) -> list[ChartType]:
+def select_viz_type(
+    analysis_type: AnalysisType,
+    metrics: list[str],
+    num_drivers: int = 0,
+    has_lap_data: bool = False,
+) -> list[ChartType]:
     """
-    Select appropriate visualization types based on query.
+    Select appropriate visualization types based on query and data characteristics.
 
     Args:
         analysis_type: Type of analysis being performed
         metrics: Metrics being analyzed
+        num_drivers: Number of drivers in the analysis
+        has_lap_data: Whether we have lap-by-lap data
 
     Returns:
         List of recommended chart types
     """
-    viz_map = {
-        AnalysisType.COMPARISON: [ChartType.LAP_COMPARISON, ChartType.SECTOR_COMPARISON],
-        AnalysisType.PACE: [ChartType.LAP_COMPARISON, ChartType.GAP_EVOLUTION],
-        AnalysisType.STRATEGY: [ChartType.TIRE_STRATEGY, ChartType.RACE_PROGRESS],
-        AnalysisType.TELEMETRY: [ChartType.SPEED_TRACE, ChartType.LAP_PROGRESSION],
-        AnalysisType.RESULTS: [ChartType.RACE_PROGRESS, ChartType.TABLE],
-    }
+    charts = []
 
-    return viz_map.get(analysis_type, [ChartType.TABLE])
+    # Check for specific metric keywords
+    metrics_lower = [m.lower() for m in metrics]
+    wants_consistency = any(
+        word in m for m in metrics_lower
+        for word in ["consistency", "consistent", "variation", "spread"]
+    )
+    wants_distribution = any(
+        word in m for m in metrics_lower
+        for word in ["distribution", "histogram", "frequency"]
+    )
+    wants_comparison = any(
+        word in m for m in metrics_lower
+        for word in ["compare", "vs", "versus", "difference", "delta"]
+    )
+
+    if analysis_type == AnalysisType.COMPARISON:
+        if num_drivers == 2 and has_lap_data:
+            # Head-to-head: show lap comparison line + delta chart
+            charts = [ChartType.LAP_COMPARISON, ChartType.DELTA_LINE, ChartType.BOX_PLOT]
+        elif num_drivers == 2:
+            # Summary comparison without lap data
+            charts = [ChartType.BAR_CHART, ChartType.BOX_PLOT]
+        else:
+            # Multiple drivers
+            charts = [ChartType.BAR_CHART, ChartType.BOX_PLOT]
+
+        if wants_consistency:
+            charts = [ChartType.BOX_PLOT, ChartType.VIOLIN_PLOT] + charts
+
+    elif analysis_type == AnalysisType.PACE:
+        if has_lap_data:
+            charts = [ChartType.LAP_PROGRESSION, ChartType.BOX_PLOT]
+            if num_drivers >= 2:
+                charts.append(ChartType.DELTA_LINE)
+        else:
+            charts = [ChartType.BAR_CHART]
+
+        if wants_distribution:
+            charts = [ChartType.HISTOGRAM] + charts
+        if wants_consistency:
+            charts = [ChartType.BOX_PLOT] + charts
+
+    elif analysis_type == AnalysisType.STRATEGY:
+        charts = [ChartType.TIRE_STRATEGY]
+        if has_lap_data:
+            charts.append(ChartType.SCATTER)  # Tire degradation scatter
+
+    elif analysis_type == AnalysisType.TELEMETRY:
+        charts = [ChartType.SPEED_TRACE, ChartType.LAP_PROGRESSION]
+
+    elif analysis_type == AnalysisType.RESULTS:
+        charts = [ChartType.POSITION_BATTLE, ChartType.TABLE]
+        if has_lap_data:
+            charts.insert(0, ChartType.RACE_PROGRESS)
+
+    else:
+        charts = [ChartType.TABLE]
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_charts = []
+    for c in charts:
+        if c not in seen:
+            seen.add(c)
+            unique_charts.append(c)
+
+    return unique_charts[:3]  # Return top 3 recommended
 
 
 def generate_viz_spec(
@@ -96,6 +163,12 @@ def generate_viz_spec(
         ChartType.TABLE: _generate_table,
         ChartType.RACE_PROGRESS: _generate_race_progress,
         ChartType.LAP_COMPARISON: _generate_lap_comparison,
+        # New chart types
+        ChartType.DELTA_LINE: _generate_delta_line,
+        ChartType.BOX_PLOT: _generate_box_plot,
+        ChartType.HISTOGRAM: _generate_histogram,
+        ChartType.VIOLIN_PLOT: _generate_violin_plot,
+        ChartType.SCATTER: _generate_scatter,
     }
 
     generator = generators.get(viz_type)
@@ -350,23 +423,44 @@ def _generate_lap_comparison(
             continue
         max_laps = max(max_laps, len(laps))
 
-    for lap_num in range(1, max_laps + 1):
-        point = {"lap": lap_num}
-        for driver in drivers:
-            driver_laps = lap_data.get(driver, [])
-            lap_record = next(
-                (l for l in driver_laps if l.get("lap_number") == lap_num),
-                None
-            )
-            if lap_record:
-                lap_time = lap_record.get("lap_time") or lap_record.get("lap_time_seconds")
-                if lap_time:
-                    point[driver] = round(lap_time, 3)
-                point[f"{driver}_compound"] = lap_record.get("compound", "MEDIUM")
-                point[f"{driver}_sector1"] = lap_record.get("sector_1_seconds")
-                point[f"{driver}_sector2"] = lap_record.get("sector_2_seconds")
-                point[f"{driver}_sector3"] = lap_record.get("sector_3_seconds")
-        chart_data.append(point)
+    # If we have lap-by-lap data, use it for line chart
+    if max_laps > 0:
+        for lap_num in range(1, max_laps + 1):
+            point = {"lap": lap_num}
+            for driver in drivers:
+                driver_laps = lap_data.get(driver, [])
+                lap_record = next(
+                    (l for l in driver_laps if l.get("lap_number") == lap_num),
+                    None
+                )
+                if lap_record:
+                    lap_time = lap_record.get("lap_time") or lap_record.get("lap_time_seconds")
+                    if lap_time:
+                        point[driver] = round(lap_time, 3)
+                    point[f"{driver}_compound"] = lap_record.get("compound", "MEDIUM")
+                    point[f"{driver}_sector1"] = lap_record.get("sector_1_seconds")
+                    point[f"{driver}_sector2"] = lap_record.get("sector_2_seconds")
+                    point[f"{driver}_sector3"] = lap_record.get("sector_3_seconds")
+            chart_data.append(point)
+    elif lap_analysis:
+        # Fallback: Create comparison bar data from lap_analysis
+        # This creates a summary comparison when we don't have lap-by-lap data
+        for metric in ["Average Pace", "Fastest Lap"]:
+            point = {"metric": metric}
+            for driver in drivers:
+                analysis = lap_analysis.get(driver)
+                if analysis:
+                    if isinstance(analysis, dict):
+                        if metric == "Average Pace":
+                            point[driver] = analysis.get("average_pace")
+                        elif metric == "Fastest Lap":
+                            point[driver] = analysis.get("fastest_lap")
+                    elif hasattr(analysis, "average_pace"):
+                        if metric == "Average Pace":
+                            point[driver] = analysis.average_pace
+                        elif metric == "Fastest Lap":
+                            point[driver] = analysis.fastest_lap
+            chart_data.append(point)
 
     # Extract driver stats from lap_analysis
     driver_stats = {}
@@ -378,15 +472,311 @@ def _generate_lap_comparison(
             elif isinstance(analysis, dict):
                 driver_stats[driver] = analysis
 
+    # Use BAR_CHART type for summary comparison, LAP_COMPARISON for detailed
+    chart_type = ChartType.LAP_COMPARISON if max_laps > 0 else ChartType.BAR_CHART
+
     return VisualizationSpec(
         id=str(uuid.uuid4()),
-        type=ChartType.LAP_COMPARISON,
+        type=chart_type,
         title=title or "Lap Time Comparison",
         data=chart_data,
         config={
+            "xAxis": "lap" if max_laps > 0 else "metric",
+            "yAxis": drivers,
             "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
             "compoundColors": COMPOUND_COLORS,
             "driverStats": driver_stats,
+        },
+        drivers=drivers,
+    )
+
+
+def _generate_delta_line(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate lap-by-lap time delta chart between drivers."""
+    lap_data = data.get("lap_times", {})
+    if not lap_data or len(drivers) < 2:
+        return None
+
+    # Get lap times for first two drivers
+    driver_1, driver_2 = drivers[0], drivers[1]
+    laps_1 = {l.get("lap_number"): l for l in lap_data.get(driver_1, [])}
+    laps_2 = {l.get("lap_number"): l for l in lap_data.get(driver_2, [])}
+
+    if not laps_1 or not laps_2:
+        return None
+
+    # Calculate lap-by-lap delta
+    chart_data = []
+    cumulative_delta = 0.0
+    all_laps = sorted(set(laps_1.keys()) & set(laps_2.keys()))
+
+    for lap_num in all_laps:
+        lap_1 = laps_1.get(lap_num, {})
+        lap_2 = laps_2.get(lap_num, {})
+
+        time_1 = lap_1.get("lap_time") or lap_1.get("lap_time_seconds")
+        time_2 = lap_2.get("lap_time") or lap_2.get("lap_time_seconds")
+
+        if time_1 and time_2:
+            lap_delta = time_2 - time_1  # Positive = driver_1 faster
+            cumulative_delta += lap_delta
+
+            chart_data.append({
+                "lap": lap_num,
+                "lap_delta": round(lap_delta, 3),
+                "cumulative_delta": round(cumulative_delta, 3),
+                "faster": driver_1 if lap_delta > 0 else driver_2,
+            })
+
+    if not chart_data:
+        return None
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.DELTA_LINE,
+        title=title or f"Gap Evolution: {driver_1} vs {driver_2}",
+        data=chart_data,
+        config={
+            "xAxis": "lap",
+            "yAxis": ["lap_delta", "cumulative_delta"],
+            "colors": {
+                driver_1: DRIVER_COLORS.get(driver_1, "#E31937"),
+                driver_2: DRIVER_COLORS.get(driver_2, "#3671C6"),
+            },
+            "referenceDriver": driver_1,
+            "comparisonDriver": driver_2,
+        },
+        drivers=[driver_1, driver_2],
+    )
+
+
+def _generate_box_plot(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate box plot for lap time distribution/consistency."""
+    lap_data = data.get("lap_times", {})
+    lap_analysis = data.get("lap_analysis", {})
+
+    chart_data = []
+
+    for driver in drivers:
+        laps = lap_data.get(driver, [])
+        analysis = lap_analysis.get(driver, {})
+
+        # Get all lap times
+        lap_times = []
+        for lap in laps:
+            time = lap.get("lap_time") or lap.get("lap_time_seconds")
+            if time and time < 200:  # Filter outliers (pit laps, etc.)
+                lap_times.append(time)
+
+        if lap_times:
+            lap_times_sorted = sorted(lap_times)
+            n = len(lap_times_sorted)
+
+            # Calculate quartiles
+            q1_idx = n // 4
+            q2_idx = n // 2
+            q3_idx = (3 * n) // 4
+
+            chart_data.append({
+                "driver": driver,
+                "min": round(lap_times_sorted[0], 3),
+                "q1": round(lap_times_sorted[q1_idx], 3),
+                "median": round(lap_times_sorted[q2_idx], 3),
+                "q3": round(lap_times_sorted[q3_idx], 3),
+                "max": round(lap_times_sorted[-1], 3),
+                "mean": round(sum(lap_times) / len(lap_times), 3),
+                "count": n,
+                "color": DRIVER_COLORS.get(driver, "#888888"),
+            })
+        elif isinstance(analysis, dict) and analysis.get("average_pace"):
+            # Fallback to analysis data
+            chart_data.append({
+                "driver": driver,
+                "min": analysis.get("fastest_lap"),
+                "q1": None,
+                "median": analysis.get("average_pace"),
+                "q3": None,
+                "max": None,
+                "mean": analysis.get("average_pace"),
+                "count": analysis.get("total_laps", 0),
+                "color": DRIVER_COLORS.get(driver, "#888888"),
+            })
+
+    if not chart_data:
+        return None
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.BOX_PLOT,
+        title=title or "Lap Time Distribution",
+        data=chart_data,
+        config={
+            "xAxis": "driver",
+            "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
+        },
+        drivers=drivers,
+    )
+
+
+def _generate_histogram(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate histogram of lap time frequency distribution."""
+    lap_data = data.get("lap_times", {})
+    if not lap_data:
+        return None
+
+    # Collect all lap times per driver
+    all_times = {}
+    for driver in drivers:
+        laps = lap_data.get(driver, [])
+        times = []
+        for lap in laps:
+            time = lap.get("lap_time") or lap.get("lap_time_seconds")
+            if time and time < 200:
+                times.append(time)
+        if times:
+            all_times[driver] = times
+
+    if not all_times:
+        return None
+
+    # Create bins
+    all_values = [t for times in all_times.values() for t in times]
+    min_time = min(all_values)
+    max_time = max(all_values)
+    bin_width = (max_time - min_time) / 15  # 15 bins
+
+    chart_data = []
+    for i in range(15):
+        bin_start = min_time + i * bin_width
+        bin_end = bin_start + bin_width
+        bin_label = f"{bin_start:.1f}-{bin_end:.1f}"
+
+        point = {"bin": bin_label, "bin_start": round(bin_start, 2)}
+        for driver, times in all_times.items():
+            count = sum(1 for t in times if bin_start <= t < bin_end)
+            point[driver] = count
+
+        chart_data.append(point)
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.HISTOGRAM,
+        title=title or "Lap Time Distribution",
+        data=chart_data,
+        config={
+            "xAxis": "bin",
+            "yAxis": drivers,
+            "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
+            "binWidth": round(bin_width, 2),
+        },
+        drivers=drivers,
+    )
+
+
+def _generate_violin_plot(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate violin plot data for distribution comparison."""
+    lap_data = data.get("lap_times", {})
+    if not lap_data:
+        return None
+
+    chart_data = []
+
+    for driver in drivers:
+        laps = lap_data.get(driver, [])
+        times = []
+        for lap in laps:
+            time = lap.get("lap_time") or lap.get("lap_time_seconds")
+            if time and time < 200:
+                times.append(time)
+
+        if times:
+            times_sorted = sorted(times)
+            n = len(times_sorted)
+
+            # Calculate density estimation points (simplified)
+            # For frontend, we'll pass the raw distribution data
+            chart_data.append({
+                "driver": driver,
+                "values": [round(t, 3) for t in times_sorted],
+                "min": round(times_sorted[0], 3),
+                "max": round(times_sorted[-1], 3),
+                "median": round(times_sorted[n // 2], 3),
+                "mean": round(sum(times) / len(times), 3),
+                "color": DRIVER_COLORS.get(driver, "#888888"),
+            })
+
+    if not chart_data:
+        return None
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.VIOLIN_PLOT,
+        title=title or "Pace Distribution Comparison",
+        data=chart_data,
+        config={
+            "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
+        },
+        drivers=drivers,
+    )
+
+
+def _generate_scatter(
+    data: dict[str, Any],
+    drivers: list[str],
+    title: str,
+) -> VisualizationSpec | None:
+    """Generate scatter plot (e.g., tire age vs lap time for degradation)."""
+    lap_data = data.get("lap_times", {})
+    if not lap_data:
+        return None
+
+    chart_data = []
+
+    for driver in drivers:
+        laps = lap_data.get(driver, [])
+        for lap in laps:
+            time = lap.get("lap_time") or lap.get("lap_time_seconds")
+            tire_life = lap.get("tyre_life") or lap.get("tire_life")
+
+            if time and tire_life and time < 200:
+                chart_data.append({
+                    "driver": driver,
+                    "tire_age": tire_life,
+                    "lap_time": round(time, 3),
+                    "compound": lap.get("compound", "UNKNOWN"),
+                    "lap_number": lap.get("lap_number"),
+                    "color": DRIVER_COLORS.get(driver, "#888888"),
+                })
+
+    if not chart_data:
+        return None
+
+    return VisualizationSpec(
+        id=str(uuid.uuid4()),
+        type=ChartType.SCATTER,
+        title=title or "Tire Degradation",
+        data=chart_data,
+        config={
+            "xAxis": "tire_age",
+            "yAxis": "lap_time",
+            "colors": {d: DRIVER_COLORS.get(d, "#888888") for d in drivers},
+            "compoundColors": COMPOUND_COLORS,
         },
         drivers=drivers,
     )

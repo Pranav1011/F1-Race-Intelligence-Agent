@@ -6,16 +6,30 @@ from pydantic import BaseModel, Field
 
 class ChartType(str, Enum):
     """Supported visualization types."""
+    # Line charts
     LAP_PROGRESSION = "lap_progression"     # Line chart of lap times
+    LAP_COMPARISON = "lap_comparison"       # Head-to-head lap time comparison
+    DELTA_LINE = "delta_line"               # Lap-by-lap time delta between drivers
+
+    # Distribution charts
+    BOX_PLOT = "box_plot"                   # Lap time distribution/consistency
+    HISTOGRAM = "histogram"                 # Lap time frequency distribution
+    VIOLIN_PLOT = "violin_plot"             # Distribution comparison
+
+    # Bar charts
+    BAR_CHART = "bar_chart"                 # Generic bar chart
+    SECTOR_COMPARISON = "sector_comparison" # Grouped bar for sectors
+
+    # F1-specific charts
     POSITION_BATTLE = "position_battle"     # Race trace / position changes
     TIRE_STRATEGY = "tire_strategy"         # Gantt-style strategy timeline
-    SECTOR_COMPARISON = "sector_comparison" # Grouped bar for sectors
-    SPEED_TRACE = "speed_trace"             # Telemetry speed overlay
     GAP_EVOLUTION = "gap_evolution"         # Gap to leader over laps
-    BAR_CHART = "bar_chart"                 # Generic bar chart
-    TABLE = "table"                         # Data table
     RACE_PROGRESS = "race_progress"         # Animated race replay with car icons
-    LAP_COMPARISON = "lap_comparison"       # Head-to-head lap time comparison
+    SPEED_TRACE = "speed_trace"             # Telemetry speed overlay
+
+    # Other
+    SCATTER = "scatter"                     # Scatter plot (e.g., tire deg)
+    TABLE = "table"                         # Data table
 
 
 class LapAnalysis(BaseModel):

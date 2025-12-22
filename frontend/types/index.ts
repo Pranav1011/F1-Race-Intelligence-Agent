@@ -25,21 +25,29 @@ export interface Session {
 
 // Visualization types
 export type ChartType =
+  // Generic chart types
   | 'line'
   | 'bar'
   | 'scatter'
   | 'table'
   | 'area'
+  // Distribution charts
+  | 'box_plot'
+  | 'histogram'
+  | 'violin_plot'
+  // Line charts
+  | 'lap_progression'
+  | 'lap_comparison'
+  | 'lap_time_comparison'
+  | 'delta_line'
   // F1-specific chart types
   | 'tire_strategy'
   | 'gap_evolution'
   | 'position_battle'
   | 'sector_heatmap'
-  | 'lap_progression'
   | 'sector_comparison'
   | 'race_progress'
-  | 'lap_comparison'
-  | 'lap_time_comparison'
+  | 'bar_chart'
 
 export interface Visualization {
   id: string
@@ -65,21 +73,41 @@ export interface VisualizationConfig {
   driverStats?: Record<string, unknown>
   raceName?: string
   year?: number
+  // Delta/comparison config
+  referenceDriver?: string
+  comparisonDriver?: string
+  binWidth?: number
 }
 
 // WebSocket message types
 export type WSMessageType =
   | 'message'
   | 'session'
+  | 'interpreted'
   | 'metadata'
   | 'token'
   | 'visualization'
   | 'tool_start'
+  | 'tool_progress'
   | 'tool_end'
   | 'ui_mode'
   | 'status'
   | 'error'
   | 'done'
+
+// Query interpretation result
+export interface QueryInterpretation {
+  original: string
+  expanded: string
+  corrections: Array<{
+    original: string
+    corrected: string
+    type: string
+    confidence?: number
+  }>
+  intent: string
+  confidence: number
+}
 
 export interface WSIncomingMessage {
   type: WSMessageType
@@ -94,10 +122,20 @@ export interface WSIncomingMessage {
     id: string
   }
   tool_id?: string
+  tool_name?: string
+  success?: boolean
+  result_summary?: string
+  progress?: number
   mode?: string
   stage?: string
   message?: string
+  detail?: string
   error?: string
+  // Interpreted event fields
+  original?: string
+  expanded?: string
+  corrections?: QueryInterpretation['corrections']
+  intent?: string
 }
 
 export interface WSOutgoingMessage {
