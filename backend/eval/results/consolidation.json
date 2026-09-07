@@ -1,0 +1,14 @@
+{
+  "scope": "TimescaleDB tool surface (the 79 that dominate the tax)",
+  "method": "langchain convert_to_openai_tool + tiktoken(gpt-4o)",
+  "before": {
+    "tools": 79,
+    "schema_tokens": 13487
+  },
+  "after": {
+    "tools": 8,
+    "schema_tokens": 2014
+  },
+  "tools_reduction_pct": 89.9,
+  "token_reduction_pct": 85.1
+}

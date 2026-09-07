@@ -1,0 +1,20 @@
+{
+  "measured": "tool-schema token cost (before consolidation)",
+  "per_category": {
+    "timescale": {
+      "tools": 79,
+      "tokens": 12857
+    },
+    "neo4j": {
+      "tools": 8,
+      "tokens": 983
+    },
+    "vector": {
+      "tools": 5,
+      "tokens": 815
+    }
+  },
+  "total_tools": 92,
+  "total_schema_tokens": 14653,
+  "tokens_per_tool_avg": 159.3
+}
