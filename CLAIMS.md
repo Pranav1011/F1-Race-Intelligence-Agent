@@ -10,4 +10,4 @@ Updated 2026-09-07. Every quantitative/technical claim maps to a committed artif
 | Long tail reachable via a **guarded text-to-SQL** tool (read-only, validated) | VERIFIED (reuses existing) | `backend/agent/validation.py`, `backend/tests/test_tools/test_sql_validation.py` | `pytest tests/test_tools/test_sql_validation.py` | 2026-09-07 |
 | Existing suite unbroken by the change | VERIFIED | pytest: 57 → **63 pass**; the 1 failure (`test_health`) is pre-existing and needs the DBs running | `pytest` | 2026-09-07 |
 
-**Scope:** consolidation applied to the 79 TimescaleDB tools (88% of the original token tax). Neo4j (8) + vector (5) not yet consolidated; wiring the 8 dispatchers into the agent's runtime binding is a 1-line follow-up (needs the DBs stood up to validate end-to-end). Measurement is DB-free (schema token cost), as approved.
+**Scope:** consolidation applied to the 79 TimescaleDB tools (88% of the original token tax). Neo4j (8) + vector (5) not yet consolidated; wiring the 8 dispatchers into the agent's runtime binding is a 1-line follow-up (needs the DBs stood up to validate end-to-end). Measurement is DB-free (schema token cost).

@@ -31,5 +31,6 @@ suite 57 → 63 pass, no new failures (the lone `test_health` failure needs the 
 predates this work).
 
 **Why it matters:** tool definitions deserve the same care as prompts — 79 tools was a
-context-budget problem, not a feature. "Cut the tool surface 90% and context cost 85%,
-with a coverage test proving nothing was lost" is a concrete, defensible line.
+context-budget problem, not a feature.
+The fix cut the surface 90% and schema cost 85%, with a coverage test proving
+nothing was lost.

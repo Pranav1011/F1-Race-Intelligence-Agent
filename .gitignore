@@ -110,3 +110,7 @@ coverage/
 *.egg-info/
 .eggs/
 *.whl
+
+# Local tooling
+graphify-out/
+.claude/

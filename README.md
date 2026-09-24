@@ -70,6 +70,32 @@ Ask natural language questions about F1 and get intelligent analysis with dynami
 | Frontend | Next.js 14, TailwindCSS, Recharts |
 | Observability | Langfuse, Sentry |
 
+## Tool-surface consolidation: 79 → 8
+
+The agent had grown to 79 narrow TimescaleDB tools, many near-duplicates ("lap times by
+driver", "by stint", "by compound"). That's a context-budget problem and a harder
+tool-selection problem for the model. I collapsed them into 8 intent-level tools: 5
+parameterized dispatchers (race analysis, driver stats, standings, comparisons, what-if)
+plus 3 standalone tools, with guarded read-only text-to-SQL for the long tail.
+
+| | Before | After |
+|---|---|---|
+| TimescaleDB tools | 79 | **8** |
+| Tool-schema tokens | 13,487 | **2,014** (−85%) |
+| Underlying capabilities reachable | 79 | 79 |
+| Test suite | 57 passing | 63 passing |
+
+- **Measured, not estimated:** both sets are serialized with LangChain's
+  `convert_to_openai_tool` and counted with tiktoken
+  ([`backend/eval/measure_consolidation.py`](backend/eval/measure_consolidation.py) →
+  [`results/consolidation.json`](backend/eval/results/consolidation.json)).
+- **Zero capability loss, enforced by a test:** `test_every_timescale_tool_is_covered_exactly_once`
+  fails if any original function becomes unreachable or is covered twice.
+- **No rewrites:** dispatchers route to the original functions and filter arguments to
+  each one's signature, so the working SQL is untouched.
+
+Design notes: [`ENGINEERING_LOG.md`](ENGINEERING_LOG.md).
+
 ## Quick Start
 
 ### Prerequisites
