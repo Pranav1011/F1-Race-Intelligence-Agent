@@ -8,6 +8,8 @@ export interface Message {
   visualization?: Visualization
   // Set when the answer failed or was cut off; rendered as an error bubble
   error?: string
+  // True while the answer is streaming; still set after a reload means it was cut off
+  pending?: boolean
 }
 
 export interface MessageMetadata {

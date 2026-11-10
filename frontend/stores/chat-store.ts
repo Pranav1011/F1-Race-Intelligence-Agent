@@ -22,8 +22,9 @@ const INTERRUPTED_ON_LOAD =
  * Lifecycle of the single in-flight answer:
  *   idle      -> streaming  (startStream)
  *   streaming -> idle       (finishStream without error)
- *   streaming -> error      (finishStream with error: done.error, error frame,
- *                            or socket closed before done)
+ *   streaming -> error      (finishStream after an error: done.error, an error
+ *                            frame, or the socket closing before done; the
+ *                            first error recorded for the stream is kept)
  *   error     -> streaming  (next startStream)
  *   streaming -> idle       (target session deleted: stream abandoned)
  * Only 'streaming' disables the input, so no state can block it forever.
@@ -41,6 +42,7 @@ interface ChatStore {
   activeSessionId: string | null
   streamStatus: StreamStatus
   streamTarget: StreamTarget | null
+  streamError: string | null
 
   // Computed getters
   getActiveSession: () => Session | undefined
@@ -76,20 +78,27 @@ function updateMessage(
   })
 }
 
-// An empty assistant message in storage is a stream that never finished.
+// A message still pending in storage is a stream that never finished.
 function markInterruptedAnswers(session: Session): Session {
-  const interrupted = session.messages.some(
-    (m) => m.role === 'assistant' && m.content === '' && !m.error
-  )
-  if (!interrupted) return session
+  if (!session.messages.some((m) => m.pending)) return session
   return {
     ...session,
-    messages: session.messages.map((m) =>
-      m.role === 'assistant' && m.content === '' && !m.error
-        ? { ...m, error: INTERRUPTED_ON_LOAD }
-        : m
-    ),
+    messages: session.messages.map((m) => {
+      if (!m.pending) return m
+      const { pending, ...rest } = m
+      return { ...rest, error: rest.error ?? INTERRUPTED_ON_LOAD }
+    }),
   }
+}
+
+// Ends a streamed message. The backend's failure text is an apology that ends
+// with the error itself, so when it does the error bubble replaces it rather
+// than repeating it.
+function settleMessage(message: Message, error: string | null): Message {
+  const { pending, ...rest } = message
+  if (!error) return rest
+  const repeatsError = rest.content.trim().endsWith(error.trim())
+  return { ...rest, content: repeatsError ? '' : rest.content, error }
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -97,6 +106,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   activeSessionId: null,
   streamStatus: 'idle',
   streamTarget: null,
+  streamError: null,
 
   getActiveSession: () => {
     const { sessions, activeSessionId } = get()
@@ -135,7 +145,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   deleteSession: (id: string) => {
     if (get().streamTarget?.sessionId === id) {
-      set({ streamStatus: 'idle', streamTarget: null })
+      set({ streamStatus: 'idle', streamTarget: null, streamError: null })
     }
 
     set((state) => {
@@ -162,6 +172,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       activeSessionId: null,
       streamStatus: 'idle',
       streamTarget: null,
+      streamError: null,
     })
     get().saveToStorage()
     // Create a fresh session after clearing
@@ -180,7 +191,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   addMessage: (msg, sessionId) => {
     const targetSessionId = sessionId ?? get().activeSessionId
-    if (!targetSessionId) return null
+    if (!targetSessionId || !get().sessions.some((s) => s.id === targetSessionId)) {
+      return null
+    }
 
     const newMessage: Message = {
       ...msg,
@@ -215,13 +228,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   startStream: (content: string) => {
     if (get().streamStatus === 'streaming') return null
 
-    const sessionId = get().activeSessionId ?? get().createSession()
+    const sessionId = get().getActiveSession()?.id ?? get().createSession()
     get().addMessage({ role: 'user', content }, sessionId)
-    const messageId = get().addMessage({ role: 'assistant', content: '' }, sessionId)
+    const messageId = get().addMessage(
+      { role: 'assistant', content: '', pending: true },
+      sessionId
+    )
     if (!messageId) return null
 
     const target = { sessionId, messageId }
-    set({ streamStatus: 'streaming', streamTarget: target })
+    set({ streamStatus: 'streaming', streamTarget: target, streamError: null })
     return target
   },
 
@@ -245,14 +261,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   recordStreamError: (error: string) => {
+    if (get().streamError) return
+    set({ streamError: error })
     get().updateStreamMessage({ error })
   },
 
   finishStream: (error) => {
-    if (error) {
-      get().recordStreamError(error)
-    }
-    set({ streamStatus: error ? 'error' : 'idle', streamTarget: null })
+    const { streamTarget: target, streamError } = get()
+    const finalError = streamError ?? error ?? null
+    set((state) => ({
+      sessions: target
+        ? updateMessage(state.sessions, target, (m) => settleMessage(m, finalError))
+        : state.sessions,
+      streamStatus: finalError ? 'error' : 'idle',
+      streamTarget: null,
+      streamError: finalError,
+    }))
     get().saveToStorage()
   },
 
