@@ -239,6 +239,9 @@ class F1Agent:
         self._sessions: OrderedDict[str, EnhancedAgentState] = OrderedDict()
         # One lock per session so concurrent turns on a session run one at a time.
         self._session_locks: dict[str, asyncio.Lock] = {}
+        # Turns holding or waiting for each session's lock; such sessions are
+        # never evicted, including while the lock is handed to a waiting turn.
+        self._session_turns: dict[str, int] = {}
 
         # Memory configuration
         self.enable_memory = enable_memory
@@ -306,10 +309,6 @@ class F1Agent:
             self._evict_idle_sessions()
         return self._sessions[session_id]
 
-    def _session_lock(self, session_id: str) -> asyncio.Lock:
-        """Return the lock that serializes turns for one session."""
-        return self._session_locks.setdefault(session_id, asyncio.Lock())
-
     def _evict_idle_sessions(self) -> None:
         """Drop least recently used sessions above the cap, skipping busy ones."""
         excess = len(self._sessions) - self.max_sessions
@@ -318,8 +317,7 @@ class F1Agent:
         for session_id in list(self._sessions):
             if excess <= 0:
                 break
-            lock = self._session_locks.get(session_id)
-            if lock is not None and lock.locked():
+            if self._session_turns.get(session_id):
                 continue
             del self._sessions[session_id]
             self._session_locks.pop(session_id, None)
@@ -361,10 +359,17 @@ class F1Agent:
         Returns:
             Response dict with analysis, visualization, and metadata
         """
-        async with self._session_lock(session_id):
-            return await self._run_turn(
-                message, session_id, user_id, status_callback, preprocessed
-            )
+        lock = self._session_locks.setdefault(session_id, asyncio.Lock())
+        self._session_turns[session_id] = self._session_turns.get(session_id, 0) + 1
+        try:
+            async with lock:
+                return await self._run_turn(
+                    message, session_id, user_id, status_callback, preprocessed
+                )
+        finally:
+            self._session_turns[session_id] -= 1
+            if not self._session_turns[session_id]:
+                del self._session_turns[session_id]
 
     async def _run_turn(
         self,
@@ -412,7 +417,10 @@ class F1Agent:
 
         # Start the turn clean: CRAG loop count, feedback, tool results,
         # validation and error belong to the previous message, not this one.
+        # The memory context loaded above is for this message.
         reset_turn_state(state)
+        state["user_context"] = user_context
+        state["session_context"] = session_context
 
         # Add user message
         state["messages"].append(HumanMessage(content=message))
@@ -587,9 +595,8 @@ class F1Agent:
         """Clear a session's history."""
         if session_id in self._sessions:
             del self._sessions[session_id]
-            lock = self._session_locks.get(session_id)
-            if lock is not None and not lock.locked():
-                del self._session_locks[session_id]
+            if not self._session_turns.get(session_id):
+                self._session_locks.pop(session_id, None)
             logger.info(f"Cleared session {session_id}")
 
 

@@ -96,9 +96,10 @@ def create_initial_state(
     )
 
 
-# Fields a graph run produces for one user message. They are cleared at the
-# start of every turn so a new message never inherits the previous turn's CRAG
-# loop count, feedback, tool results, validation or error.
+# Fields that belong to one user message. They are cleared at the start of
+# every turn so a new message never inherits the previous turn's CRAG loop
+# count, feedback, tool results, validation or error. The memory context is
+# re-loaded for each message, so it is per-turn too.
 PER_TURN_FIELDS: tuple[str, ...] = (
     "preprocessed_query",
     "query_understanding",
@@ -114,13 +115,13 @@ PER_TURN_FIELDS: tuple[str, ...] = (
     "validation_result",
     "iteration_count",
     "error",
+    "user_context",
+    "session_context",
 )
 
 # Fields that live for the whole session and carry across turns.
 PER_SESSION_FIELDS: tuple[str, ...] = (
     "messages",
-    "user_context",
-    "session_context",
     "session_id",
     "user_id",
 )

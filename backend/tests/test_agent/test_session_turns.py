@@ -31,11 +31,18 @@ class ScriptedGraph:
         self.seen_states: list[dict] = []
         self.active = 0
         self.max_active = 0
+        self.active_by_session: dict[str, int] = {}
+        self.max_same_session = 0
 
     async def astream(self, state, config=None, stream_mode=None):
         self.seen_states.append(dict(state))
+        session_id = state["session_id"]
         self.active += 1
         self.max_active = max(self.max_active, self.active)
+        self.active_by_session[session_id] = self.active_by_session.get(session_id, 0) + 1
+        self.max_same_session = max(
+            self.max_same_session, self.active_by_session[session_id]
+        )
         try:
             if self.delay:
                 await asyncio.sleep(self.delay)
@@ -45,9 +52,13 @@ class ScriptedGraph:
             for update in updates:
                 if isinstance(update, Exception):
                     raise update
+                if callable(update):
+                    update()
+                    continue
                 yield update
         finally:
             self.active -= 1
+            self.active_by_session[session_id] -= 1
 
 
 def make_agent(graph: ScriptedGraph, max_sessions: int = 500) -> F1Agent:
@@ -72,7 +83,7 @@ def test_every_state_field_is_classified():
 
 
 def test_reset_turn_state_keeps_session_fields():
-    state = create_initial_state("s1", "u1", "likes Ferrari", {"drivers": ["LEC"]})
+    state = create_initial_state("s1", "u1")
     state["messages"].append(HumanMessage(content="hi"))
     state["iteration_count"] = 2
     state["error"] = "boom"
@@ -84,8 +95,41 @@ def test_reset_turn_state_keeps_session_fields():
     assert state["error"] is None
     assert state["raw_data"] == {}
     assert [m.content for m in state["messages"]] == ["hi"]
-    assert state["user_context"] == "likes Ferrari"
-    assert state["session_context"] == {"drivers": ["LEC"]}
+    assert state["user_id"] == "u1"
+
+
+async def test_memory_context_is_refreshed_every_turn():
+    graph = ScriptedGraph()
+    agent = make_agent(graph)
+    contexts = iter(["likes Verstappen", "asked about Ferrari"])
+    session_contexts = iter([{"drivers": ["VER"]}, {"drivers": ["LEC"]}])
+
+    class FakeUserMemory:
+        async def get_user_context(self, user_id, message):
+            return next(contexts)
+
+        async def add_memory(self, **kwargs):
+            pass
+
+    class FakeSessionState:
+        async def get_context(self, session_id):
+            return next(session_contexts)
+
+        async def add_message(self, *args):
+            pass
+
+        async def update_context(self, *args):
+            pass
+
+    agent.enable_memory = True
+    agent._user_memory = FakeUserMemory()
+    agent._session_state = FakeSessionState()
+
+    await agent.chat("q1", session_id="s1", user_id="u1")
+    await agent.chat("q2", session_id="s1", user_id="u1")
+
+    assert graph.seen_states[1]["user_context"] == "asked about Ferrari"
+    assert graph.seen_states[1]["session_context"] == {"drivers": ["LEC"]}
 
 
 async def test_second_turn_starts_with_fresh_per_turn_state():
@@ -160,6 +204,28 @@ async def test_session_cache_evicts_least_recently_used():
     assert [m["content"] for m in agent.get_session_history("s1")] == ["a", "c"]
     assert len(agent._sessions) == 2
     assert set(agent._session_locks) <= set(agent._sessions)
+
+
+async def test_session_waiting_for_its_lock_is_not_evicted():
+    graph = ScriptedGraph(delay=0.02)
+    agent = make_agent(graph, max_sessions=1)
+
+    def create_other_session_after_release():
+        # call_soon from the first turn's last step runs after that turn
+        # releases the lock but before the queued second turn resumes: the
+        # hand-off window in which "busy" looks unlocked.
+        asyncio.get_running_loop().call_soon(agent.get_or_create_session, "other")
+
+    graph.turns = [[{"generate": {"analysis_result": "ok"}}, create_other_session_after_release]]
+
+    await asyncio.gather(
+        agent.chat("a", session_id="busy"),
+        agent.chat("b", session_id="busy"),
+    )
+
+    assert graph.max_same_session == 1
+    assert [m["content"] for m in agent.get_session_history("busy")] == ["a", "b"]
+    assert "busy" in agent._session_locks
 
 
 async def test_session_cleared_mid_turn_is_not_restored():
