@@ -5,6 +5,7 @@ import { Message } from '@/types'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { AlertTriangle } from 'lucide-react'
 
 interface MessageBubbleProps {
   message: Message
@@ -115,6 +116,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+  const hasError = !isUser && Boolean(message.error)
 
   // Parse query type for display
   const queryType = useMemo(() => {
@@ -157,7 +159,9 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
           className={`relative overflow-hidden ${
             isUser
               ? 'bg-gradient-to-br from-f1-red to-f1-redDark text-white rounded-2xl rounded-br-md'
-              : 'bg-surface text-text-primary rounded-2xl rounded-bl-md border border-white/5'
+              : `bg-surface text-text-primary rounded-2xl rounded-bl-md border ${
+                  hasError ? 'border-data-negative/40' : 'border-white/5'
+                }`
           }`}
           style={{
             boxShadow: isUser
@@ -184,6 +188,17 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                   {message.content}
                 </ReactMarkdown>
                 {isStreaming && <TypingCursor />}
+              </div>
+            )}
+            {hasError && (
+              <div
+                role="alert"
+                className={`flex items-start gap-2 text-sm text-data-negative ${
+                  message.content ? 'mt-3 pt-3 border-t border-data-negative/20' : ''
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                <p className="leading-relaxed">{message.error}</p>
               </div>
             )}
           </div>

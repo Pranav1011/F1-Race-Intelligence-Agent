@@ -22,6 +22,8 @@ import {
 interface ChatAreaProps {
   messages: Message[]
   isStreaming: boolean
+  // True while any session is streaming: one answer is in flight at a time
+  inputDisabled: boolean
   onSendMessage: (content: string) => void
   statusMessage?: string | null
   interpretation?: QueryInterpretationType | null
@@ -231,6 +233,7 @@ function EmptyState({ onSelect }: { onSelect: (content: string) => void }) {
 export function ChatArea({
   messages,
   isStreaming,
+  inputDisabled,
   onSendMessage,
   statusMessage,
   interpretation,
@@ -318,7 +321,7 @@ export function ChatArea({
 
         <div className="bg-background-primary/90 backdrop-blur-xl border-t border-white/5">
           <div className="max-w-4xl mx-auto">
-            <MessageInput onSend={onSendMessage} disabled={isStreaming} />
+            <MessageInput onSend={onSendMessage} disabled={inputDisabled} />
           </div>
         </div>
       </div>

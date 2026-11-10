@@ -6,6 +6,8 @@ export interface Message {
   timestamp: string
   metadata?: MessageMetadata
   visualization?: Visualization
+  // Set when the answer failed or was cut off; rendered as an error bubble
+  error?: string
 }
 
 export interface MessageMetadata {

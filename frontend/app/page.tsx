@@ -11,16 +11,20 @@ import { ChatArea } from '@/components/chat/ChatArea'
 import { API_ENDPOINTS } from '@/utils/api'
 import { QueryInterpretation as QueryInterpretationType } from '@/types'
 
+const DISCONNECTED_MESSAGE =
+  'Lost the connection to the backend before the answer finished. Check that the API is running, then send your question again.'
+
 export default function Home() {
   const {
     activeSessionId,
     getMessages,
-    isStreaming,
-    createSession,
-    addMessage,
-    appendToLastMessage,
-    updateLastMessage,
-    setStreaming,
+    streamStatus,
+    streamTarget,
+    startStream,
+    appendToStream,
+    updateStreamMessage,
+    recordStreamError,
+    finishStream,
     loadFromStorage,
   } = useChatStore()
 
@@ -40,6 +44,12 @@ export default function Home() {
     loadFromStorage()
   }, [loadFromStorage])
 
+  const clearStatus = useCallback(() => {
+    setStatusMessage(null)
+    setStatusDetail(null)
+    setStatusProgress(null)
+  }, [])
+
   // WebSocket connection
   const { sendMessage: wsSendMessage } = useWebSocket({
     url: API_ENDPOINTS.chatWs,
@@ -52,17 +62,19 @@ export default function Home() {
     },
     onToken: (token) => {
       // Clear status message when we start receiving tokens
-      setStatusMessage(null)
-      setStatusDetail(null)
-      setStatusProgress(null)
-      appendToLastMessage(token)
+      clearStatus()
+      appendToStream(token)
     },
     onVisualization: (viz) => {
-      setArtifact(viz)
-      updateLastMessage({ visualization: viz })
+      // Only open the panel if the user is still looking at the answering session
+      const { streamTarget: target, activeSessionId: active } = useChatStore.getState()
+      if (target?.sessionId === active) {
+        setArtifact(viz)
+      }
+      updateStreamMessage({ visualization: viz })
     },
     onMetadata: (meta) => {
-      updateLastMessage({ metadata: meta })
+      updateStreamMessage({ metadata: meta })
     },
     onStatus: (status) => {
       // Update status message for loading indicator
@@ -70,48 +82,38 @@ export default function Home() {
       setStatusDetail(status.detail || null)
       setStatusProgress(status.progress || null)
     },
-    onDone: () => {
-      setStreaming(false)
-      setStatusMessage(null)
-      setStatusDetail(null)
-      setStatusProgress(null)
+    onDone: (error) => {
+      clearStatus()
+      finishStream(error)
     },
     onError: (error) => {
-      setStreaming(false)
-      setStatusMessage(null)
-      setStatusDetail(null)
-      setStatusProgress(null)
-      appendToLastMessage(`\n\nError: ${error}`)
+      recordStreamError(error)
+    },
+    onDisconnect: () => {
+      clearStatus()
+      finishStream(DISCONNECTED_MESSAGE)
     },
   })
 
   // Handle sending a message
   const handleSendMessage = useCallback(
     (content: string) => {
-      // Ensure we have an active session
-      let sessionId = activeSessionId
-      if (!sessionId) {
-        sessionId = createSession()
-      }
+      // Adds the user message and the assistant placeholder to the active
+      // session and pins the stream to them; refuses while an answer streams
+      const target = startStream(content)
+      if (!target) return
 
       // Reset interpretation state
       setInterpretation(null)
       setShowInterpretation(false)
 
-      // Add user message
-      addMessage({ role: 'user', content })
-
-      // Add empty assistant message placeholder
-      addMessage({ role: 'assistant', content: '' })
-
-      // Start streaming
-      setStreaming(true)
-
-      // Send via WebSocket
-      wsSendMessage(content, sessionId)
+      wsSendMessage(content, target.sessionId)
     },
-    [activeSessionId, createSession, addMessage, setStreaming, wsSendMessage]
+    [startStream, wsSendMessage]
   )
+
+  const isStreaming = streamStatus === 'streaming'
+  const isStreamingHere = isStreaming && streamTarget?.sessionId === activeSessionId
 
   const messages = getMessages()
 
@@ -131,9 +133,10 @@ export default function Home() {
           <main className="flex-1 min-w-0">
             <ChatArea
               messages={messages}
-              isStreaming={isStreaming}
+              isStreaming={isStreamingHere}
+              inputDisabled={isStreaming}
               onSendMessage={handleSendMessage}
-              statusMessage={statusMessage}
+              statusMessage={isStreamingHere ? statusMessage : null}
               interpretation={interpretation}
               showInterpretation={showInterpretation}
             />

@@ -15,10 +15,32 @@ function generateTitle(content: string): string {
   return cleaned.substring(0, 30) + '...'
 }
 
+const INTERRUPTED_ON_LOAD =
+  'This answer was interrupted before it finished (the page was reloaded or closed). Send the question again.'
+
+/**
+ * Lifecycle of the single in-flight answer:
+ *   idle      -> streaming  (startStream)
+ *   streaming -> idle       (finishStream without error)
+ *   streaming -> error      (finishStream with error: done.error, error frame,
+ *                            or socket closed before done)
+ *   error     -> streaming  (next startStream)
+ *   streaming -> idle       (target session deleted: stream abandoned)
+ * Only 'streaming' disables the input, so no state can block it forever.
+ */
+export type StreamStatus = 'idle' | 'streaming' | 'error'
+
+/** Where the in-flight answer is written, fixed when the message is sent. */
+export interface StreamTarget {
+  sessionId: string
+  messageId: string
+}
+
 interface ChatStore {
   sessions: Session[]
   activeSessionId: string | null
-  isStreaming: boolean
+  streamStatus: StreamStatus
+  streamTarget: StreamTarget | null
 
   // Computed getters
   getActiveSession: () => Session | undefined
@@ -30,18 +52,51 @@ interface ChatStore {
   deleteSession: (id: string) => void
   clearAllSessions: () => void
   renameSession: (id: string, title: string) => void
-  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => void
-  updateLastMessage: (updates: Partial<Message>) => void
-  appendToLastMessage: (token: string) => void
-  setStreaming: (streaming: boolean) => void
+  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>, sessionId?: string) => string | null
+  startStream: (content: string) => StreamTarget | null
+  appendToStream: (token: string) => void
+  updateStreamMessage: (updates: Partial<Message>) => void
+  recordStreamError: (error: string) => void
+  finishStream: (error?: string | null) => void
   loadFromStorage: () => void
   saveToStorage: () => void
+}
+
+function updateMessage(
+  sessions: Session[],
+  target: StreamTarget,
+  update: (message: Message) => Message
+): Session[] {
+  return sessions.map((s) => {
+    if (s.id !== target.sessionId) return s
+    return {
+      ...s,
+      messages: s.messages.map((m) => (m.id === target.messageId ? update(m) : m)),
+    }
+  })
+}
+
+// An empty assistant message in storage is a stream that never finished.
+function markInterruptedAnswers(session: Session): Session {
+  const interrupted = session.messages.some(
+    (m) => m.role === 'assistant' && m.content === '' && !m.error
+  )
+  if (!interrupted) return session
+  return {
+    ...session,
+    messages: session.messages.map((m) =>
+      m.role === 'assistant' && m.content === '' && !m.error
+        ? { ...m, error: INTERRUPTED_ON_LOAD }
+        : m
+    ),
+  }
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
   sessions: [],
   activeSessionId: null,
-  isStreaming: false,
+  streamStatus: 'idle',
+  streamTarget: null,
 
   getActiveSession: () => {
     const { sessions, activeSessionId } = get()
@@ -79,6 +134,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   deleteSession: (id: string) => {
+    if (get().streamTarget?.sessionId === id) {
+      set({ streamStatus: 'idle', streamTarget: null })
+    }
+
     set((state) => {
       const newSessions = state.sessions.filter((s) => s.id !== id)
       let newActiveId = state.activeSessionId
@@ -101,6 +160,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({
       sessions: [],
       activeSessionId: null,
+      streamStatus: 'idle',
+      streamTarget: null,
     })
     get().saveToStorage()
     // Create a fresh session after clearing
@@ -117,9 +178,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     get().saveToStorage()
   },
 
-  addMessage: (msg) => {
-    const { activeSessionId, sessions } = get()
-    if (!activeSessionId) return
+  addMessage: (msg, sessionId) => {
+    const targetSessionId = sessionId ?? get().activeSessionId
+    if (!targetSessionId) return null
 
     const newMessage: Message = {
       ...msg,
@@ -129,7 +190,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     set((state) => ({
       sessions: state.sessions.map((s) => {
-        if (s.id !== activeSessionId) return s
+        if (s.id !== targetSessionId) return s
 
         const updatedSession: Session = {
           ...s,
@@ -148,52 +209,51 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     // Debounced save
     setTimeout(() => get().saveToStorage(), 500)
+    return newMessage.id
   },
 
-  updateLastMessage: (updates) => {
-    const { activeSessionId } = get()
-    if (!activeSessionId) return
+  startStream: (content: string) => {
+    if (get().streamStatus === 'streaming') return null
 
+    const sessionId = get().activeSessionId ?? get().createSession()
+    get().addMessage({ role: 'user', content }, sessionId)
+    const messageId = get().addMessage({ role: 'assistant', content: '' }, sessionId)
+    if (!messageId) return null
+
+    const target = { sessionId, messageId }
+    set({ streamStatus: 'streaming', streamTarget: target })
+    return target
+  },
+
+  appendToStream: (token: string) => {
+    const target = get().streamTarget
+    if (!target) return
     set((state) => ({
-      sessions: state.sessions.map((s) => {
-        if (s.id !== activeSessionId || s.messages.length === 0) return s
-
-        const messages = [...s.messages]
-        const lastIdx = messages.length - 1
-        messages[lastIdx] = { ...messages[lastIdx], ...updates }
-
-        return { ...s, messages, updatedAt: new Date().toISOString() }
-      }),
+      sessions: updateMessage(state.sessions, target, (m) => ({
+        ...m,
+        content: m.content + token,
+      })),
     }))
   },
 
-  appendToLastMessage: (token: string) => {
-    const { activeSessionId } = get()
-    if (!activeSessionId) return
-
+  updateStreamMessage: (updates) => {
+    const target = get().streamTarget
+    if (!target) return
     set((state) => ({
-      sessions: state.sessions.map((s) => {
-        if (s.id !== activeSessionId || s.messages.length === 0) return s
-
-        const messages = [...s.messages]
-        const lastIdx = messages.length - 1
-        messages[lastIdx] = {
-          ...messages[lastIdx],
-          content: messages[lastIdx].content + token,
-        }
-
-        return { ...s, messages }
-      }),
+      sessions: updateMessage(state.sessions, target, (m) => ({ ...m, ...updates })),
     }))
   },
 
-  setStreaming: (streaming: boolean) => {
-    set({ isStreaming: streaming })
+  recordStreamError: (error: string) => {
+    get().updateStreamMessage({ error })
+  },
 
-    // Save when streaming ends
-    if (!streaming) {
-      get().saveToStorage()
+  finishStream: (error) => {
+    if (error) {
+      get().recordStreamError(error)
     }
+    set({ streamStatus: error ? 'error' : 'idle', streamTarget: null })
+    get().saveToStorage()
   },
 
   loadFromStorage: () => {
@@ -215,7 +275,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       set({
-        sessions: data.sessions,
+        sessions: data.sessions.map(markInterruptedAnswers),
         activeSessionId: data.activeSessionId,
       })
 

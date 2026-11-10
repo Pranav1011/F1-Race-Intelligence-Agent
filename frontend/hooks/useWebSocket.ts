@@ -29,14 +29,17 @@ interface UseWebSocketOptions {
   onStatus?: (status: StatusUpdate) => void
   onInterpreted?: (interpretation: QueryInterpretation) => void
   onToolUpdate?: (update: ToolUpdate) => void
-  onDone?: () => void
+  // Server finished the answer; error is set when the agent reported a failure
+  onDone?: (error: string | null) => void
+  // Server sent an error frame (a done frame still follows)
   onError?: (error: string) => void
+  // Socket closed before a done frame arrived (server down, restarted, network)
+  onDisconnect?: () => void
 }
 
 interface UseWebSocketReturn {
   sendMessage: (content: string, sessionId: string, userId?: string) => void
   isConnected: boolean
-  isStreaming: boolean
   disconnect: () => void
 }
 
@@ -52,34 +55,32 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     onToolUpdate,
     onDone,
     onError,
+    onDisconnect,
   } = options
 
   const [isConnected, setIsConnected] = useState(false)
-  const [isStreaming, setIsStreaming] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
+    const ws = wsRef.current
+    // Clear the ref first so this socket's onclose is treated as stale
+    wsRef.current = null
+    ws?.close()
     setIsConnected(false)
-    setIsStreaming(false)
   }, [])
 
   const sendMessage = useCallback(
     (content: string, sessionId: string, userId?: string) => {
-      // Close existing connection if any
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-
+      // Replace any previous socket; its late events are ignored as stale
+      const previous = wsRef.current
       const ws = new WebSocket(url)
       wsRef.current = ws
+      previous?.close()
+      let doneReceived = false
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return
         setIsConnected(true)
-        setIsStreaming(true)
 
         const message: WSOutgoingMessage = {
           type: 'message',
@@ -91,6 +92,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       }
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return
         try {
           const data: WSIncomingMessage = JSON.parse(event.data)
 
@@ -187,9 +189,9 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
               break
 
             case 'done':
-              setIsStreaming(false)
+              doneReceived = true
               if (onDone) {
-                onDone()
+                onDone(data.error || null)
               }
               // Close connection after done
               ws.close()
@@ -202,25 +204,25 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
 
       ws.onerror = (event) => {
         console.error('WebSocket error:', event)
-        if (onError) {
-          onError('Connection error. Please try again.')
-        }
-        setIsStreaming(false)
       }
 
+      // onclose follows every onerror, so a failed or dropped connection is
+      // reported once, here
       ws.onclose = () => {
-        setIsConnected(false)
-        setIsStreaming(false)
+        if (wsRef.current !== ws) return
         wsRef.current = null
+        setIsConnected(false)
+        if (!doneReceived && onDisconnect) {
+          onDisconnect()
+        }
       }
     },
-    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onInterpreted, onToolUpdate, onDone, onError]
+    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onInterpreted, onToolUpdate, onDone, onError, onDisconnect]
   )
 
   return {
     sendMessage,
     isConnected,
-    isStreaming,
     disconnect,
   }
 }
