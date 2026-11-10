@@ -162,6 +162,18 @@ async def test_session_cache_evicts_least_recently_used():
     assert set(agent._session_locks) <= set(agent._sessions)
 
 
+async def test_session_cleared_mid_turn_is_not_restored():
+    graph = ScriptedGraph(delay=0.02)
+    agent = make_agent(graph)
+
+    turn = asyncio.create_task(agent.chat("a", session_id="s1"))
+    await asyncio.sleep(0.01)
+    agent.clear_session("s1")
+    await turn
+
+    assert "s1" not in agent._sessions
+
+
 async def test_graph_failure_names_the_failing_step():
     graph = ScriptedGraph(turns=[[
         {"understand": {"query_understanding": {}}},

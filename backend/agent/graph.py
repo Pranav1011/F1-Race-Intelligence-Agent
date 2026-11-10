@@ -469,8 +469,8 @@ class F1Agent:
                         stage, msg = node_status_messages[node_name]
                         await send_status(stage, msg)
 
-            # Update session state
-            self._sessions[session_id] = result
+            # result is the stored session state, updated in place above. It is
+            # not re-inserted, so a session cleared mid-turn stays cleared.
 
             # Extract query understanding for response
             understanding = result.get("query_understanding", {})
