@@ -30,14 +30,16 @@ Observability:
 - Sentry error capture for exceptions
 """
 
+import asyncio
 import logging
+from collections import OrderedDict
 from functools import partial
 from typing import Any
 
 from langgraph.graph import END, StateGraph
 from langchain_core.messages import HumanMessage
 
-from agent.state import EnhancedAgentState, create_initial_state
+from agent.state import EnhancedAgentState, create_initial_state, reset_turn_state
 from agent.llm import LLMRouter, LLMConfig
 from agent.nodes import (
     understand_query,
@@ -55,6 +57,10 @@ from agent.tools.neo4j_tools import NEO4J_TOOLS
 from agent.tools.vector_tools import VECTOR_TOOLS
 
 logger = logging.getLogger(__name__)
+
+# Upper bound on in-process conversations kept by F1Agent before the least
+# recently used one is dropped.
+DEFAULT_MAX_SESSIONS = 500
 
 
 def create_enhanced_agent_graph(
@@ -196,6 +202,7 @@ class F1Agent:
         redis_host: str = "redis",
         redis_port: int = 6379,
         memory_llm_provider: str = "ollama",
+        max_sessions: int = DEFAULT_MAX_SESSIONS,
     ):
         """
         Initialize the F1 Agent.
@@ -212,7 +219,13 @@ class F1Agent:
             redis_host: Redis host for session state
             redis_port: Redis port
             memory_llm_provider: LLM provider for Mem0 memory extraction
+            max_sessions: Most sessions kept in memory; least recently used are evicted
         """
+        if max_sessions < 1:
+            raise ValueError(
+                f"max_sessions must be at least 1, got {max_sessions}. "
+                "Pass a positive cap on in-memory sessions."
+            )
         self.config = LLMConfig(
             openai_api_key=openai_api_key,
             deepseek_api_key=deepseek_api_key,
@@ -221,7 +234,11 @@ class F1Agent:
             ollama_base_url=ollama_base_url,
         )
         self.graph = create_enhanced_agent_graph(self.config)
-        self._sessions: dict[str, EnhancedAgentState] = {}
+        self.max_sessions = max_sessions
+        # Session id -> conversation state, oldest access first (LRU order).
+        self._sessions: OrderedDict[str, EnhancedAgentState] = OrderedDict()
+        # One lock per session so concurrent turns on a session run one at a time.
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
         # Memory configuration
         self.enable_memory = enable_memory
@@ -279,12 +296,35 @@ class F1Agent:
         user_context: str = "",
         session_context: dict | None = None,
     ) -> EnhancedAgentState:
-        """Get existing session or create new one."""
-        if session_id not in self._sessions:
+        """Get existing session or create new one, marking it most recently used."""
+        if session_id in self._sessions:
+            self._sessions.move_to_end(session_id)
+        else:
             self._sessions[session_id] = create_initial_state(
                 session_id, user_id, user_context, session_context
             )
+            self._evict_idle_sessions()
         return self._sessions[session_id]
+
+    def _session_lock(self, session_id: str) -> asyncio.Lock:
+        """Return the lock that serializes turns for one session."""
+        return self._session_locks.setdefault(session_id, asyncio.Lock())
+
+    def _evict_idle_sessions(self) -> None:
+        """Drop least recently used sessions above the cap, skipping busy ones."""
+        excess = len(self._sessions) - self.max_sessions
+        if excess <= 0:
+            return
+        for session_id in list(self._sessions):
+            if excess <= 0:
+                break
+            lock = self._session_locks.get(session_id)
+            if lock is not None and lock.locked():
+                continue
+            del self._sessions[session_id]
+            self._session_locks.pop(session_id, None)
+            excess -= 1
+            logger.info(f"Evicted least recently used session {session_id}")
 
     async def chat(
         self,
@@ -296,6 +336,9 @@ class F1Agent:
     ) -> dict[str, Any]:
         """
         Process a user message and generate a response.
+
+        Turns on the same session are serialized: a second message waits for
+        the first to finish instead of mutating the same state concurrently.
 
         The enhanced agent flow:
         0. PREPROCESS: Fuzzy matching, intent classification, entity extraction (done before this)
@@ -318,6 +361,20 @@ class F1Agent:
         Returns:
             Response dict with analysis, visualization, and metadata
         """
+        async with self._session_lock(session_id):
+            return await self._run_turn(
+                message, session_id, user_id, status_callback, preprocessed
+            )
+
+    async def _run_turn(
+        self,
+        message: str,
+        session_id: str,
+        user_id: str | None,
+        status_callback,
+        preprocessed: dict | None,
+    ) -> dict[str, Any]:
+        """Run one turn of the graph. Callers must hold the session lock."""
         # Helper to send status if callback is provided
         async def send_status(stage: str, message: str):
             if status_callback:
@@ -353,6 +410,10 @@ class F1Agent:
         # Get or create session state
         state = self.get_or_create_session(session_id, user_id, user_context, session_context)
 
+        # Start the turn clean: CRAG loop count, feedback, tool results,
+        # validation and error belong to the previous message, not this one.
+        reset_turn_state(state)
+
         # Add user message
         state["messages"].append(HumanMessage(content=message))
 
@@ -377,6 +438,7 @@ class F1Agent:
         except Exception as e:
             logger.debug(f"Langfuse handler not available: {e}")
 
+        last_node = "start"
         try:
             # Run the enhanced graph with streaming for status updates
             config = {}
@@ -400,6 +462,7 @@ class F1Agent:
             async for event in self.graph.astream(state, config=config, stream_mode="updates"):
                 # event is a dict with node name as key
                 for node_name, node_output in event.items():
+                    last_node = node_name
                     result.update(node_output)
                     # Send status update for this node
                     if node_name in node_status_messages:
@@ -475,16 +538,21 @@ class F1Agent:
             return response
 
         except Exception as e:
-            logger.error(f"Chat error: {e}", exc_info=True)
+            logger.error(f"Chat error after '{last_node}' step: {e}", exc_info=True)
+            error = (
+                f"Agent stopped after the '{last_node}' step: {e}. "
+                "Send the question again; if it keeps failing, check the backend "
+                "logs and that the data services are running."
+            )
             return {
-                "message": f"I apologize, but I encountered an error: {str(e)}",
+                "message": f"I apologize, but I encountered an error: {error}",
                 "query_type": "error",
                 "response_type": "TEXT",
                 "visualization": None,
                 "confidence": 0.0,
                 "iterations": 0,
                 "session_id": session_id,
-                "error": str(e),
+                "error": error,
             }
 
     def get_session_history(self, session_id: str) -> list[dict]:
@@ -519,6 +587,9 @@ class F1Agent:
         """Clear a session's history."""
         if session_id in self._sessions:
             del self._sessions[session_id]
+            lock = self._session_locks.get(session_id)
+            if lock is not None and not lock.locked():
+                del self._session_locks[session_id]
             logger.info(f"Cleared session {session_id}")
 
 

@@ -96,5 +96,42 @@ def create_initial_state(
     )
 
 
+# Fields a graph run produces for one user message. They are cleared at the
+# start of every turn so a new message never inherits the previous turn's CRAG
+# loop count, feedback, tool results, validation or error.
+PER_TURN_FIELDS: tuple[str, ...] = (
+    "preprocessed_query",
+    "query_understanding",
+    "data_plan",
+    "raw_data",
+    "processed_analysis",
+    "evaluation",
+    "evaluation_feedback",
+    "enriched_context",
+    "analysis_result",
+    "visualization_spec",
+    "response_type",
+    "validation_result",
+    "iteration_count",
+    "error",
+)
+
+# Fields that live for the whole session and carry across turns.
+PER_SESSION_FIELDS: tuple[str, ...] = (
+    "messages",
+    "user_context",
+    "session_context",
+    "session_id",
+    "user_id",
+)
+
+
+def reset_turn_state(state: EnhancedAgentState) -> None:
+    """Reset every per-turn field in place, keeping per-session fields."""
+    fresh = create_initial_state(state["session_id"])
+    for key in PER_TURN_FIELDS:
+        state[key] = fresh[key]
+
+
 # Keep old state for backwards compatibility
 AgentStateDict = EnhancedAgentState
