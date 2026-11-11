@@ -111,6 +111,8 @@ export interface QueryInterpretation {
   }>
   intent: string
   confidence: number
+  // How the year was chosen when the question didn't state it
+  yearNote?: string | null
 }
 
 export interface WSIncomingMessage {
@@ -140,6 +142,7 @@ export interface WSIncomingMessage {
   expanded?: string
   corrections?: QueryInterpretation['corrections']
   intent?: string
+  year_note?: string | null
 }
 
 export interface WSOutgoingMessage {

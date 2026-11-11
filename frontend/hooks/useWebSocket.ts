@@ -126,6 +126,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
                   corrections: data.corrections || [],
                   intent: data.intent || 'general',
                   confidence: data.confidence || 0,
+                  yearNote: data.year_note ?? null,
                 })
               }
               break

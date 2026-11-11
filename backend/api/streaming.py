@@ -250,6 +250,7 @@ class StreamingContext:
         corrections: list[dict],
         intent: str,
         confidence: float,
+        year_note: str | None = None,
     ):
         """Send interpreted query info."""
         await self.send({
@@ -259,6 +260,7 @@ class StreamingContext:
             "corrections": corrections,
             "intent": intent,
             "confidence": confidence,
+            "year_note": year_note,
         })
 
     async def metadata(
@@ -314,7 +316,7 @@ WEBSOCKET_EVENTS = {
     },
     "interpreted": {
         "description": "Preprocessed query information",
-        "fields": ["original", "expanded", "corrections", "intent", "confidence"],
+        "fields": ["original", "expanded", "corrections", "intent", "confidence", "year_note"],
     },
     "status": {
         "description": "Processing stage status",

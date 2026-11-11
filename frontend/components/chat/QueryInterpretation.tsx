@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { Sparkles, AlertCircle, ArrowRight, CheckCircle2, CalendarDays } from 'lucide-react'
 import { QueryInterpretation as QueryInterpretationType } from '@/types'
 
 interface QueryInterpretationProps {
@@ -17,8 +17,10 @@ export function QueryInterpretation({ interpretation, isVisible }: QueryInterpre
   // "General" at 0% means the classifier found nothing; don't show it as a finding
   const hasIntent = interpretation.intent !== 'general' && interpretation.confidence > 0
 
+  const yearNote = interpretation.yearNote
+
   // Don't show if nothing interesting happened
-  if (!hasCorrections && !wasExpanded) return null
+  if (!hasCorrections && !wasExpanded && !yearNote) return null
 
   return (
     <AnimatePresence>
@@ -59,6 +61,17 @@ export function QueryInterpretation({ interpretation, isVisible }: QueryInterpre
                   <span className="text-text-muted">Understood as: </span>
                   <span className="text-text-primary/90">{interpretation.expanded}</span>
                 </div>
+              </div>
+            )}
+
+            {/* A season the user didn't type: say how it was chosen */}
+            {yearNote && (
+              <div className="flex items-start gap-2 mt-2">
+                <CalendarDays className="w-4 h-4 text-text-muted mt-0.5 flex-shrink-0" aria-hidden="true" />
+                <p className="text-sm">
+                  <span className="text-text-muted">Season: </span>
+                  <span className="text-text-secondary">{yearNote}</span>
+                </p>
               </div>
             )}
 

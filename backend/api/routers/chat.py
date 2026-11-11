@@ -92,7 +92,7 @@ async def chat(message: ChatMessage):
         session_id = message.session_id or str(uuid.uuid4())
 
         # Preprocess the query
-        preprocessed = preprocessor.process(message.content)
+        preprocessed = preprocessor.process(message.content, session_id=session_id)
 
         # Track query in history
         try:
@@ -182,7 +182,7 @@ async def websocket_chat(websocket: WebSocket):
                 # Step 1: Preprocess the query
                 await ctx.status(StreamStage.PREPROCESSING)
                 preprocessor = get_query_preprocessor()
-                preprocessed = preprocessor.process(content)
+                preprocessed = preprocessor.process(content, session_id=session_id)
 
                 # Send interpreted query info
                 await ctx.interpreted(
@@ -191,6 +191,7 @@ async def websocket_chat(websocket: WebSocket):
                     corrections=preprocessed.corrections,
                     intent=preprocessed.intent,
                     confidence=preprocessed.intent_confidence,
+                    year_note=preprocessed.year_note,
                 )
 
                 # Track query in history (non-blocking)

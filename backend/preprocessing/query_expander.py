@@ -21,8 +21,26 @@ logger = logging.getLogger(__name__)
 CURRENT_YEAR = datetime.now().year
 
 # Last season the ingestion pipeline covers (2018-2024). A question that names
-# no year is read as this season, not the calendar year, which has no data.
+# no year, or a relative one ("this season", "last year"), is read against this
+# season rather than the calendar year, which has no data.
 LATEST_DATA_SEASON = 2024
+
+# Where a query's year came from (ExpandedQuery.inferred_context["year_source"])
+YEAR_EXPLICIT = "explicit"  # "2021"
+YEAR_RELATIVE = "relative"  # "this season", "last year", "2 years ago"
+YEAR_PREVIOUS_TURN = "previous_turn"  # no year; kept from the session's last question
+YEAR_DEFAULT = "default"  # no year and no earlier question
+
+
+def describe_year(year: int, source: str) -> str | None:
+    """Short note for the UI when the year was not stated outright."""
+    if source == YEAR_DEFAULT:
+        return f"assumed {year} (latest season with data)"
+    if source == YEAR_RELATIVE:
+        return f"read as {year} (data runs to the {LATEST_DATA_SEASON} season)"
+    if source == YEAR_PREVIOUS_TURN:
+        return f"kept {year} from your earlier question"
+    return None
 
 
 @dataclass
@@ -77,12 +95,15 @@ class QueryExpander:
         """
         self.fuzzy_matcher = fuzzy_matcher or FuzzyMatcher()
 
-    def expand(self, query: str) -> ExpandedQuery:
+    def expand(self, query: str, previous_year: int | None = None) -> ExpandedQuery:
         """
         Expand and normalize a query.
 
         Args:
             query: Raw user query
+
+            previous_year: Year of the session's previous question, used when
+                this one names no year (follow-ups like "what about Hamilton?")
 
         Returns:
             ExpandedQuery with extracted entities and context
@@ -111,8 +132,10 @@ class QueryExpander:
                     if team_match and team_match.canonical not in teams:
                         teams.append(team_match.canonical)
 
-        # Extract/infer year
-        year = self._extract_year(query)
+        # Extract/infer year; a follow-up with no year keeps the previous one
+        year, year_source = self._extract_year(query)
+        if year_source == YEAR_DEFAULT and previous_year is not None:
+            year, year_source = previous_year, YEAR_PREVIOUS_TURN
 
         # Extract circuit from race patterns
         circuit_from_race = self._extract_race_circuit(query)
@@ -126,8 +149,10 @@ class QueryExpander:
 
         # Build inferred context
         inferred_context = {}
-        if year and str(year) not in original:
+        if year and year_source != YEAR_EXPLICIT:
             inferred_context["year_inferred"] = True
+            inferred_context["year_source"] = year_source
+            inferred_context["year_note"] = describe_year(year, year_source)
         if is_comparison and "vs" not in original.lower() and "compare" not in original.lower():
             inferred_context["comparison_inferred"] = True
 
@@ -176,31 +201,30 @@ class QueryExpander:
 
         return False, None, []
 
-    def _extract_year(self, query: str) -> int | None:
-        """Extract or infer year from query."""
+    def _extract_year(self, query: str) -> tuple[int, str]:
+        """Extract or infer the year, and say where it came from."""
         query_lower = query.lower()
 
         # Direct year mention
         year_match = re.search(r"\b(20[0-2][0-9])\b", query)
         if year_match:
-            return int(year_match.group(1))
+            return int(year_match.group(1)), YEAR_EXPLICIT
 
-        # This year/season
+        # Relative years count back from the latest season with data
+        latest = min(CURRENT_YEAR, LATEST_DATA_SEASON)
+
         if re.search(r"\bthis\s+(?:year|season)\b", query_lower):
-            return CURRENT_YEAR
+            return latest, YEAR_RELATIVE
 
-        # Last year/season
         if re.search(r"\blast\s+(?:year|season)\b", query_lower):
-            return CURRENT_YEAR - 1
+            return latest - 1, YEAR_RELATIVE
 
-        # X years ago
         ago_match = re.search(r"\b(\d+)\s+(?:years?\s+)?ago\b", query_lower)
         if ago_match:
-            years_ago = int(ago_match.group(1))
-            return CURRENT_YEAR - years_ago
+            return latest - int(ago_match.group(1)), YEAR_RELATIVE
 
         # No year given: use the latest season that has data
-        return LATEST_DATA_SEASON
+        return LATEST_DATA_SEASON, YEAR_DEFAULT
 
     def _extract_race_circuit(self, query: str) -> str | None:
         """Extract circuit from race/GP mentions."""

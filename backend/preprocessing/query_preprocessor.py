@@ -6,6 +6,7 @@ to preprocess user queries before they hit the LLM.
 """
 
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from preprocessing.query_expander import QueryExpander, ExpandedQuery
 from preprocessing.intent_classifier import IntentClassifier, ClassifiedIntent
 
 logger = logging.getLogger(__name__)
+
+# Sessions whose last year is remembered for follow-up questions
+MAX_TRACKED_SESSIONS = 1000
 
 
 @dataclass
@@ -46,6 +50,9 @@ class PreprocessedQuery:
     # Fuzzy match corrections made
     corrections: list[dict] = field(default_factory=list)
 
+    # How the year was chosen when the query didn't state it, for the UI
+    year_note: str | None = None
+
     # Hints for LLM
     hints: dict = field(default_factory=dict)
 
@@ -66,6 +73,7 @@ class PreprocessedQuery:
             "suggested_tools": self.suggested_tools,
             "is_simple_query": self.is_simple_query,
             "corrections": self.corrections,
+            "year_note": self.year_note,
             "hints": self.hints,
         }
 
@@ -96,14 +104,21 @@ class QueryPreprocessor:
         self.query_expander = QueryExpander(self.fuzzy_matcher)
         self.intent_classifier = IntentClassifier()
 
+        # Year of each session's last question, so a follow-up without a year
+        # ("what about Hamilton?") stays in the same season. In-process, like
+        # the agent's own session history.
+        self._session_years: OrderedDict[str, int] = OrderedDict()
+
         logger.info("QueryPreprocessor initialized")
 
-    def process(self, query: str) -> PreprocessedQuery:
+    def process(self, query: str, session_id: str | None = None) -> PreprocessedQuery:
         """
         Process a query through all preprocessing steps.
 
         Args:
             query: Raw user query
+            session_id: Chat session; a question with no year keeps the year
+                of the session's previous question
 
         Returns:
             PreprocessedQuery with all extracted information
@@ -125,7 +140,13 @@ class QueryPreprocessor:
                 })
 
         # Step 2: Expand query (normalize names, infer context)
-        expanded = self.query_expander.expand(query)
+        previous_year = self._session_years.get(session_id) if session_id else None
+        expanded = self.query_expander.expand(query, previous_year=previous_year)
+        if session_id and expanded.year is not None:
+            self._session_years[session_id] = expanded.year
+            self._session_years.move_to_end(session_id)
+            while len(self._session_years) > MAX_TRACKED_SESSIONS:
+                self._session_years.popitem(last=False)
 
         # Step 3: Classify intent
         classified = self.intent_classifier.classify(query)
@@ -149,6 +170,7 @@ class QueryPreprocessor:
             suggested_tools=classified.suggested_tools,
             is_simple_query=classified.is_simple,
             corrections=corrections,
+            year_note=expanded.inferred_context.get("year_note"),
             hints={
                 **classified.hints,
                 **expanded.inferred_context,
