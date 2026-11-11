@@ -1,6 +1,7 @@
 """EVALUATE node - Assess data sufficiency and decide whether to loop."""
 
 import logging
+import re
 from typing import Any, Literal
 
 from agent.schemas.analysis import ProcessedAnalysis, EvaluationResult
@@ -51,6 +52,32 @@ def get_threshold_for_query_type(query_type: AnalysisType) -> float:
     return THRESHOLD_BY_QUERY_TYPE.get(query_type, DEFAULT_THRESHOLD)
 
 
+# Error codes that mean the data service itself failed. Any other code (such
+# as NO_TELEMETRY_DATA or SESSION_NOT_FOUND) means the query reached the
+# service and it had nothing matching.
+SERVICE_FAILURE_CODES = frozenset({
+    "DATABASE_CONNECTION_ERROR",
+    "DATABASE_QUERY_ERROR",
+    "DATABASE_TIMEOUT",
+    "RATE_LIMITED",
+    "PROVIDER_UNAVAILABLE",
+    "UNKNOWN_ERROR",
+})
+
+# Uncoded errors such as "No race data found for 2031" or "Circuit X not found"
+NOT_FOUND_MESSAGE = re.compile(r"\bno\b.*\bfound\b|\bnot found\b", re.IGNORECASE)
+
+
+def _is_not_found_error(row: Any) -> bool:
+    """True for an error row saying the service answered but had no data."""
+    if not isinstance(row, dict) or not row.get("error"):
+        return False
+    code = row.get("code")
+    if code:
+        return code not in SERVICE_FAILURE_CODES
+    return bool(NOT_FOUND_MESSAGE.search(str(row["error"])))
+
+
 def is_error_result(result: Any) -> bool:
     """True for a tool result that reports a failure instead of data.
 
@@ -62,6 +89,14 @@ def is_error_result(result: Any) -> bool:
     if isinstance(result, list) and result:
         return all(isinstance(row, dict) and row.get("error") for row in result)
     return False
+
+
+def is_failed_result(result: Any) -> bool:
+    """True for an error result caused by a failing service, not by an empty answer."""
+    if not is_error_result(result):
+        return False
+    rows = result if isinstance(result, list) else [result]
+    return not all(_is_not_found_error(row) for row in rows)
 
 
 def is_usable_result(result: Any) -> bool:
@@ -115,6 +150,23 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
     raw_data = state.get("raw_data", {})
     has_data = count_usable_results(raw_data) > 0
     out_of_retries = iteration >= MAX_ITERATIONS
+
+    # A retry whose tools all failed must not throw away an earlier attempt's
+    # usable data: keep the last usable data and answer from it once the
+    # retries are spent.
+    last_usable = state.get("last_usable_data") or {}
+    restored: dict[str, Any] = {}
+    if has_data:
+        last_usable = {
+            "raw_data": raw_data,
+            "processed_analysis": state.get("processed_analysis", {}),
+        }
+    elif last_usable and out_of_retries:
+        restored = dict(last_usable)
+        processed = ProcessedAnalysis(**last_usable["processed_analysis"])
+        has_data = True
+        logger.info("Evaluation: last retry returned no usable data, using an earlier attempt's data")
+
     if has_data:
         data_outcome = DATA_OK
     elif out_of_retries:
@@ -182,6 +234,8 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
         "evaluation_feedback": feedback,
         "iteration_count": iteration + 1 if will_loop else iteration,
         "data_outcome": data_outcome,
+        "last_usable_data": last_usable,
+        **restored,
     }
 
 

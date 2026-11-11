@@ -97,12 +97,17 @@ class ModelNotPulledError(RuntimeError):
         return bool(message) and cls.MESSAGE.fullmatch(message) is not None
 
 
+# Ollama's reply for a model that is not pulled, e.g. "model 'x:8b' not found".
+# A wrong base URL also gives a 404 ("404 page not found") and must not match.
+MISSING_MODEL_MESSAGE = re.compile(r"model ['\"]?\S+?['\"]? not found")
+
+
 def _is_missing_ollama_model(error: Exception) -> bool:
     """True when Ollama rejected the request because the model is not pulled."""
     return (
         isinstance(error, OllamaResponseError)
         and error.status_code == 404
-        and "not found" in str(error.error)
+        and MISSING_MODEL_MESSAGE.search(str(error.error)) is not None
     )
 
 

@@ -13,7 +13,7 @@ from ollama import ResponseError as OllamaResponseError
 import agent.graph as graph_module
 from agent.graph import F1Agent
 from agent.llm import LLMConfig, LLMProvider, LLMRouter, ModelNotPulledError
-from agent.nodes.evaluate import MAX_ITERATIONS, is_usable_result
+from agent.nodes.evaluate import MAX_ITERATIONS, is_failed_result, is_usable_result
 from agent.schemas.query import AnalysisScope, AnalysisType, QueryUnderstanding
 
 REFUSED = "[Errno 61] Connect call failed ('127.0.0.1', 5432)"
@@ -33,6 +33,15 @@ ALL_FAILED = {
     "reports": [{"error": "Connection refused"}],
 }
 
+NO_LAPS = [{
+    "error": "No lap time data found for the specified criteria",
+    "code": "NO_TELEMETRY_DATA",
+}]
+NO_PITS = [{
+    "error": "No pit stop data found for the specified criteria",
+    "code": "NO_PIT_STOP_DATA",
+}]
+
 VER_LAPS = [
     {"lap_number": n, "lap_time_seconds": 82.0 + n / 10, "compound": "HARD"}
     for n in range(1, 61)
@@ -42,8 +51,9 @@ VER_LAPS = [
 class FakeNodes:
     """Scripted stand-ins for the LLM nodes and the tool executor."""
 
-    def __init__(self, raw_data: dict, understand_error: str | None = None):
-        self.raw_data = raw_data
+    def __init__(self, raw_data: dict | list[dict], understand_error: str | None = None):
+        # One raw_data per attempt; the last one repeats
+        self.attempts = list(raw_data) if isinstance(raw_data, list) else [raw_data]
         self.understand_error = understand_error
         self.plan_calls = 0
         self.generate_calls = 0
@@ -67,7 +77,8 @@ class FakeNodes:
         return {"data_plan": PLAN}
 
     async def execute(self, state, **tools):
-        return {"raw_data": dict(self.raw_data)}
+        attempt = self.attempts.pop(0) if len(self.attempts) > 1 else self.attempts[0]
+        return {"raw_data": dict(attempt)}
 
     async def enrich(self, state):
         return {"enriched_context": {}}
@@ -147,7 +158,50 @@ async def test_empty_results_say_no_data_was_found(make_agent):
     response = await agent.chat("Monza 2031 strategy?", session_id="s1")
 
     assert nodes.generate_calls == 0
-    assert response["message"].startswith("I couldn't find any race data")
+    assert response["message"].startswith(
+        "I couldn't find data for that in the race database (TimescaleDB) "
+        "or race report search (Qdrant)"
+    )
+    assert "Check that these services" not in response["message"]
+
+
+async def test_not_found_errors_are_not_reported_as_dead_services(make_agent):
+    nodes = FakeNodes({"laps_VER": NO_LAPS, "stints": NO_PITS})
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Pit stops at Monza 2024?", session_id="s1")
+
+    assert nodes.generate_calls == 0
+    assert response["message"].startswith(
+        "I couldn't find data for that in the race database (TimescaleDB)"
+    )
+    assert "Failed" not in response["message"]
+    assert "Check that these services" not in response["message"]
+
+
+async def test_only_the_unreachable_source_is_named_as_failed(make_agent):
+    nodes = FakeNodes({"laps_VER": NO_LAPS, "reports": [{"error": "Connection refused"}]})
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Monza 2024 strategy?", session_id="s1")
+
+    assert "Failed: race report search (Qdrant)." in response["message"]
+    assert "TimescaleDB" not in response["message"]
+
+
+async def test_failed_retry_keeps_the_earlier_usable_data(make_agent):
+    standings = {"results": [{"position": 1, "driver": "NOR"}]}
+    nodes = FakeNodes([standings, ALL_FAILED])
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Monza 2024 strategy?", session_id="s1")
+
+    assert nodes.plan_calls == MAX_ITERATIONS + 1
+    assert nodes.generate_calls == 1
+    assert response["message"] == "Verstappen ran one stop."
+    session = agent._sessions["s1"]
+    assert session["data_outcome"] == "ok"
+    assert session["raw_data"] == standings
 
 
 async def test_partial_data_takes_the_normal_path(make_agent):
@@ -183,14 +237,38 @@ def test_is_usable_result(result, usable):
     assert is_usable_result(result) is usable
 
 
-class MissingModelOllama:
+@pytest.mark.parametrize(
+    ("result", "failed"),
+    [
+        ([{"error": REFUSED, "code": "DATABASE_QUERY_ERROR"}], True),
+        ({"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}, True),
+        ({"error": "RAG service not initialized"}, True),
+        ([{"error": "Connection refused"}], True),
+        (NO_LAPS, False),
+        (NO_PITS, False),
+        ({"error": "Session '2031_1_R' not found", "code": "SESSION_NOT_FOUND"}, False),
+        ([{"error": "No race data found for 2031"}], False),
+        ({"error": "Circuit Atlantis not found"}, False),
+        ([*NO_LAPS, {"error": REFUSED, "code": "DATABASE_TIMEOUT"}], True),
+        ([], False),
+        ([{"lap_number": 1}], False),
+    ],
+)
+def test_is_failed_result(result, failed):
+    assert is_failed_result(result) is failed
+
+
+class Ollama404:
+    def __init__(self, body: str):
+        self.body = body
+
     async def ainvoke(self, messages, **kwargs):
-        raise OllamaResponseError("model 'llama-missing:1b' not found", 404)
+        raise OllamaResponseError(self.body, 404)
 
 
 async def test_missing_ollama_model_says_how_to_fix_it(caplog):
     router = LLMRouter(LLMConfig(ollama_model="llama-missing:1b"))
-    router._providers[LLMProvider.OLLAMA] = MissingModelOllama()
+    router._providers[LLMProvider.OLLAMA] = Ollama404('{"error":"model \'llama-missing:1b\' not found"}')
 
     with pytest.raises(ModelNotPulledError) as raised:
         await router.ainvoke([])
@@ -201,6 +279,17 @@ async def test_missing_ollama_model_says_how_to_fix_it(caplog):
     )
     assert str(raised.value) == expected
     assert expected in caplog.text
+
+
+async def test_wrong_ollama_url_is_not_reported_as_a_missing_model():
+    router = LLMRouter(LLMConfig(ollama_model="llama3.1:8b"))
+    router._providers[LLMProvider.OLLAMA] = Ollama404("404 page not found")
+
+    with pytest.raises(RuntimeError) as raised:
+        await router.ainvoke([])
+
+    assert not isinstance(raised.value, ModelNotPulledError)
+    assert str(raised.value) == "All LLM providers failed"
 
 
 def test_ollama_model_comes_from_the_environment(monkeypatch):

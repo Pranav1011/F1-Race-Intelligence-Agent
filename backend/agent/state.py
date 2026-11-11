@@ -44,6 +44,7 @@ class EnhancedAgentState(TypedDict):
     evaluation: dict  # Serialized EvaluationResult schema
     evaluation_feedback: str  # Feedback for PLAN node if looping
     data_outcome: str  # "ok", "retry" or "no_data" (no usable data, retries spent)
+    last_usable_data: dict  # raw_data and processed_analysis of the last attempt with data
 
     # ENRICH node output (RAG context)
     enriched_context: dict  # Contains race_context, community_insights, regulations, similar_analyses
@@ -84,6 +85,7 @@ def create_initial_state(
         evaluation={},
         evaluation_feedback="",
         data_outcome="",
+        last_usable_data={},
         enriched_context={},
         analysis_result="",
         visualization_spec=None,
@@ -111,6 +113,7 @@ PER_TURN_FIELDS: tuple[str, ...] = (
     "evaluation",
     "evaluation_feedback",
     "data_outcome",
+    "last_usable_data",
     "enriched_context",
     "analysis_result",
     "visualization_spec",

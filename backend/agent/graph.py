@@ -43,7 +43,7 @@ from langchain_core.messages import HumanMessage
 
 from agent.state import EnhancedAgentState, create_initial_state, reset_turn_state
 from agent.llm import DEFAULT_OLLAMA_MODEL, LLMRouter, LLMConfig, ModelNotPulledError
-from agent.nodes.evaluate import is_error_result
+from agent.nodes.evaluate import is_failed_result
 from agent.nodes import (
     understand_query,
     plan_data_retrieval,
@@ -198,19 +198,24 @@ def describe_missing_data(state: dict) -> dict[str, Any]:
         for call in state.get("data_plan", {}).get("tool_calls", [])
     }
     failed_sources: list[str] = []
+    empty_sources: list[str] = []
     for tool_id, result in state.get("raw_data", {}).items():
-        if not is_error_result(result):
-            continue
         tool_name = tool_names.get(tool_id, tool_id)
         source = TOOL_SOURCES.get(tool_name, f"the {tool_name} tool")
-        if source not in failed_sources:
-            failed_sources.append(source)
+        sources = failed_sources if is_failed_result(result) else empty_sources
+        if source not in sources:
+            sources.append(source)
 
     if failed_sources:
         answer = (
             "I couldn't reach the race data, so I can't answer with data right now. "
             f"Failed: {', '.join(failed_sources)}. "
             "Check that these services are running, then ask again."
+        )
+    elif empty_sources:
+        answer = (
+            f"I couldn't find data for that in {' or '.join(empty_sources)}, "
+            "so I can't answer it with data. Try naming the season, race and drivers."
         )
     else:
         answer = (
