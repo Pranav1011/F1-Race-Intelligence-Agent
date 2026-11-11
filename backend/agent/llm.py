@@ -1,7 +1,8 @@
 """
 LLM Router
 
-Implements fallback chain: DeepSeek (primary) -> Groq -> Gemini -> Ollama.
+Implements fallback chain: OpenAI -> Groq -> DeepSeek -> Gemini -> Ollama.
+Only providers with an API key are tried; local Ollama is always last.
 Handles rate limiting, errors, and automatic failover.
 """
 
@@ -27,8 +28,13 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-# Local Ollama model used when OLLAMA_MODEL is not set
-DEFAULT_OLLAMA_MODEL = "deepseek-r1:8b"
+# Local Ollama model used when OLLAMA_MODEL is not set. llama3.1:8b is the
+# model the agent is tested with and the one `make setup` pulls.
+DEFAULT_OLLAMA_MODEL = "llama3.1:8b"
+
+# Ollama URL used when OLLAMA_BASE_URL is not set: a local `ollama serve`.
+# docker-compose sets OLLAMA_BASE_URL=http://ollama:11434 for the container.
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 
 class LLMProvider(str, Enum):
@@ -64,8 +70,8 @@ class LLMConfig:
     google_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash-exp"
 
-    # Ollama (local - can run DeepSeek R1 locally!)
-    ollama_base_url: str = "http://ollama:11434"
+    # Ollama (local fallback, no API key needed)
+    ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
     ollama_model: str = DEFAULT_OLLAMA_MODEL  # Overridden by OLLAMA_MODEL
 
     # General settings
@@ -97,6 +103,20 @@ class ModelNotPulledError(RuntimeError):
         return bool(message) and cls.MESSAGE.fullmatch(message) is not None
 
 
+class LLMUnavailableError(RuntimeError):
+    """Raised when every configured provider failed, e.g. Ollama is not running."""
+
+    MESSAGE = "All LLM providers failed"
+
+    def __init__(self):
+        super().__init__(self.MESSAGE)
+
+    @classmethod
+    def matches(cls, message: str | None) -> bool:
+        """True when an error message kept in agent state came from this error."""
+        return message == cls.MESSAGE
+
+
 # Ollama's reply for a model that is not pulled, e.g. "model 'x:8b' not found".
 # A wrong base URL also gives a 404 ("404 page not found") and must not match.
 MISSING_MODEL_MESSAGE = re.compile(r"model ['\"]?\S+?['\"]? not found")
@@ -115,7 +135,7 @@ class LLMRouter:
     """
     Routes LLM requests through fallback chain.
 
-    Priority: DeepSeek -> Groq -> Gemini -> Ollama
+    Priority: OpenAI -> Groq -> DeepSeek -> Gemini -> Ollama
 
     Supports two-stage routing:
     - Stage 1 (Planning): Fast 8B model for query understanding and tool selection
@@ -326,7 +346,7 @@ class LLMRouter:
                 logger.error(f"Error with {provider.value}: {e}")
                 continue
 
-        raise RuntimeError("All LLM providers failed")
+        raise LLMUnavailableError()
 
     def invoke(
         self,
@@ -374,7 +394,7 @@ class LLMRouter:
                 logger.error(f"Error with {provider.value}: {e}")
                 continue
 
-        raise RuntimeError("All LLM providers failed")
+        raise LLMUnavailableError()
 
     @property
     def current_provider(self) -> LLMProvider | None:
@@ -478,7 +498,7 @@ def create_llm_router(
     deepseek_api_key: str | None = None,
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
-    ollama_base_url: str = "http://ollama:11434",
+    ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL,
 ) -> LLMRouter:
     """
     Factory function to create an LLM router.

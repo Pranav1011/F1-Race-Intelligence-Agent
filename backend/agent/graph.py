@@ -42,7 +42,14 @@ from langgraph.graph import END, StateGraph
 from langchain_core.messages import HumanMessage
 
 from agent.state import EnhancedAgentState, create_initial_state, reset_turn_state
-from agent.llm import DEFAULT_OLLAMA_MODEL, LLMRouter, LLMConfig, ModelNotPulledError
+from agent.llm import (
+    DEFAULT_OLLAMA_BASE_URL,
+    DEFAULT_OLLAMA_MODEL,
+    LLMConfig,
+    LLMRouter,
+    LLMUnavailableError,
+    ModelNotPulledError,
+)
 from agent.nodes.evaluate import is_failed_result
 from agent.nodes import (
     understand_query,
@@ -223,10 +230,20 @@ def describe_missing_data(state: dict) -> dict[str, Any]:
             "it with data. Try naming the season, race and drivers."
         )
 
-    # A missing LLM model is the first thing to fix, so it leads the answer
+    # A missing or unreachable LLM is the first thing to fix, so it leads the
+    # answer. Without a model the agent cannot plan the lookup, so any data
+    # failures after it are reported as secondary.
     upstream_error = state.get("error")
     if ModelNotPulledError.matches(upstream_error):
         answer = f"Agent error: {upstream_error}. {answer}"
+    elif LLMUnavailableError.matches(upstream_error):
+        answer = (
+            "I couldn't reach a language model, so I couldn't plan or answer this. "
+            "Start Ollama (`ollama serve`) and check OLLAMA_BASE_URL, or add an API key, "
+            "then ask again."
+        )
+        if failed_sources:
+            answer += f" The data lookups also failed: {', '.join(failed_sources)}."
 
     logger.warning(f"No usable data, not generating an answer: {answer}")
     return {
@@ -259,7 +276,7 @@ class F1Agent:
         deepseek_api_key: str | None = None,
         groq_api_key: str | None = None,
         google_api_key: str | None = None,
-        ollama_base_url: str = "http://ollama:11434",
+        ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL,
         ollama_model: str = DEFAULT_OLLAMA_MODEL,
         # Memory configuration
         enable_memory: bool = True,
@@ -680,7 +697,7 @@ def get_agent(
     deepseek_api_key: str | None = None,
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
-    ollama_base_url: str = "http://ollama:11434",
+    ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL,
     ollama_model: str = DEFAULT_OLLAMA_MODEL,
     enable_memory: bool = True,
     qdrant_host: str = "qdrant",

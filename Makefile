@@ -48,10 +48,10 @@ setup:
 	@echo "Pulling Docker images..."
 	docker compose pull
 	@echo ""
-	@echo "Setting up Ollama with Llama 3.2..."
+	@echo "Setting up Ollama with llama3.1:8b (the default OLLAMA_MODEL)..."
 	docker compose up -d ollama
 	@sleep 5
-	docker exec f1_ollama ollama pull llama3.2 || echo "Failed to pull model - you can do this later"
+	docker exec f1_ollama ollama pull llama3.1:8b || echo "Failed to pull model - you can do this later"
 	docker compose down
 	@echo ""
 	@echo "Setup complete! Run 'make up' to start services."

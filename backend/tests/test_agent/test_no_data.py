@@ -12,7 +12,7 @@ from ollama import ResponseError as OllamaResponseError
 
 import agent.graph as graph_module
 from agent.graph import F1Agent
-from agent.llm import LLMConfig, LLMProvider, LLMRouter, ModelNotPulledError
+from agent.llm import LLMConfig, LLMProvider, LLMRouter, LLMUnavailableError, ModelNotPulledError
 from agent.nodes.evaluate import MAX_ITERATIONS, is_failed_result, is_usable_result
 from agent.schemas.query import AnalysisScope, AnalysisType, QueryUnderstanding
 
@@ -139,6 +139,19 @@ async def test_zero_data_reports_an_earlier_model_error_first(make_agent):
         "run `ollama pull deepseek-r1:8b` or set OLLAMA_MODEL."
     )
     assert "I couldn't reach the race data" in response["error"]
+
+
+async def test_zero_data_blames_the_unreachable_llm_not_the_data(make_agent):
+    nodes = FakeNodes(ALL_FAILED, understand_error=str(LLMUnavailableError()))
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Who won Monza 2024?", session_id="s1")
+
+    assert nodes.generate_calls == 0
+    assert response["error"].startswith("I couldn't reach a language model")
+    assert "OLLAMA_BASE_URL" in response["error"]
+    assert "All LLM providers failed" not in response["error"]
+    assert "The data lookups also failed:" in response["error"]
 
 
 async def test_zero_data_leaves_out_unrelated_earlier_errors(make_agent):
