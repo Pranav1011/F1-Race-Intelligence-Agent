@@ -9,6 +9,7 @@ Provides short-term working memory for agent sessions:
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -46,6 +47,7 @@ class SessionState:
         redis_port: int = 6379,
         redis_db: int = 0,
         redis_password: str | None = None,
+        redis_url: str | None = None,
     ):
         """
         Initialize session state manager.
@@ -55,7 +57,10 @@ class SessionState:
             redis_port: Redis server port
             redis_db: Redis database number
             redis_password: Optional password
+            redis_url: Full Redis URL. Defaults to REDIS_URL, which the rest of
+                the backend uses too; host/port apply only when neither is set.
         """
+        self.redis_url = redis_url or os.getenv("REDIS_URL")
         self.redis_host = redis_host
         self.redis_port = redis_port
         self.redis_db = redis_db
@@ -69,14 +74,18 @@ class SessionState:
         if self._initialized:
             return
 
-        logger.info(f"Connecting to Redis at {self.redis_host}:{self.redis_port}...")
-        self._client = redis.Redis(
-            host=self.redis_host,
-            port=self.redis_port,
-            db=self.redis_db,
-            password=self.redis_password,
-            decode_responses=True,
-        )
+        if self.redis_url:
+            logger.info(f"Connecting to Redis at {self.redis_url}...")
+            self._client = redis.from_url(self.redis_url, decode_responses=True)
+        else:
+            logger.info(f"Connecting to Redis at {self.redis_host}:{self.redis_port}...")
+            self._client = redis.Redis(
+                host=self.redis_host,
+                port=self.redis_port,
+                db=self.redis_db,
+                password=self.redis_password,
+                decode_responses=True,
+            )
 
         # Test connection
         try:
