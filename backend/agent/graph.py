@@ -42,6 +42,7 @@ from langgraph.graph import END, StateGraph
 from langchain_core.messages import HumanMessage
 
 from agent.state import EnhancedAgentState, create_initial_state, reset_turn_state
+from agent.preflight import DataServicePreflight
 from agent.llm import (
     DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_OLLAMA_MODEL,
@@ -198,6 +199,15 @@ async def _no_data_node(state: EnhancedAgentState) -> dict[str, Any]:
     return describe_missing_data(state)
 
 
+def unreachable_data_answer(failed_sources: list[str]) -> str:
+    """The no-data reply when data services could not be reached."""
+    return (
+        "I couldn't reach the race data, so I can't answer with data right now. "
+        f"Failed: {', '.join(failed_sources)}. "
+        "Check that these services are running, then ask again."
+    )
+
+
 def describe_missing_data(state: dict) -> dict[str, Any]:
     """Build the no-data answer from the last plan's failed tool calls."""
     tool_names = {
@@ -214,11 +224,7 @@ def describe_missing_data(state: dict) -> dict[str, Any]:
             sources.append(source)
 
     if failed_sources:
-        answer = (
-            "I couldn't reach the race data, so I can't answer with data right now. "
-            f"Failed: {', '.join(failed_sources)}. "
-            "Check that these services are running, then ask again."
-        )
+        answer = unreachable_data_answer(failed_sources)
     elif empty_sources:
         answer = (
             f"I couldn't find data for that in {' or '.join(empty_sources)}, "
@@ -286,6 +292,7 @@ class F1Agent:
         redis_port: int = 6379,
         memory_llm_provider: str = "ollama",
         max_sessions: int = DEFAULT_MAX_SESSIONS,
+        data_preflight: DataServicePreflight | None = None,
     ):
         """
         Initialize the F1 Agent.
@@ -319,6 +326,8 @@ class F1Agent:
             ollama_model=ollama_model,
         )
         self.graph = create_enhanced_agent_graph(self.config)
+        # Checked before each turn: with every data service down, answer at once
+        self.data_preflight = data_preflight or DataServicePreflight()
         self.max_sessions = max_sessions
         # Session id -> conversation state, oldest access first (LRU order).
         self._sessions: OrderedDict[str, EnhancedAgentState] = OrderedDict()
@@ -551,17 +560,35 @@ class F1Agent:
                 "no_data": ("validating", "No data on the timing screens..."),
             }
 
-            # Stream through the graph nodes for live status updates
             result = state
-            async for event in self.graph.astream(state, config=config, stream_mode="updates"):
-                # event is a dict with node name as key
-                for node_name, node_output in event.items():
-                    last_node = node_name
-                    result.update(node_output)
-                    # Send status update for this node
-                    if node_name in node_status_messages:
-                        stage, msg = node_status_messages[node_name]
-                        await send_status(stage, msg)
+
+            # Every data service down: no plan can return data, so answer now
+            # instead of spending understand/plan LLM calls first
+            all_down = await self.data_preflight.all_unreachable()
+            if all_down:
+                answer = unreachable_data_answer(all_down)
+                logger.warning(f"Preflight: no data service reachable, not running the agent: {answer}")
+                last_node = "no_data"
+                result.update({
+                    "analysis_result": answer,
+                    "visualization_spec": None,
+                    "response_type": "TEXT",
+                    "error": answer,
+                    "data_outcome": "no_data",
+                })
+                stage, msg = node_status_messages["no_data"]
+                await send_status(stage, msg)
+            else:
+                # Stream through the graph nodes for live status updates
+                async for event in self.graph.astream(state, config=config, stream_mode="updates"):
+                    # event is a dict with node name as key
+                    for node_name, node_output in event.items():
+                        last_node = node_name
+                        result.update(node_output)
+                        # Send status update for this node
+                        if node_name in node_status_messages:
+                            stage, msg = node_status_messages[node_name]
+                            await send_status(stage, msg)
 
             # result is the stored session state, updated in place above. It is
             # not re-inserted, so a session cleared mid-turn stays cleared.

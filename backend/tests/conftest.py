@@ -98,3 +98,14 @@ def sample_stint_data():
             "avgPace": 94.2,
         },
     ]
+
+
+@pytest.fixture(autouse=True)
+def data_services_reachable(monkeypatch):
+    """Agent tests script their own tool results, so the preflight sees every
+    data service as up. Preflight tests replace probe_service themselves."""
+
+    async def reachable(service, timeout=None):
+        return True
+
+    monkeypatch.setattr("agent.preflight.probe_service", reachable)

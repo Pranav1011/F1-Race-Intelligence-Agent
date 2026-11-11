@@ -112,8 +112,8 @@ hosted model first; the router tries them in that order and falls back to Ollama
 
 ### Without Docker (UI + agent, no race data)
 
-Useful for working on the UI or the agent. Without the databases, every question ends in the
-honest "couldn't reach the race data" reply.
+Useful for working on the UI or the agent. Without the databases, every question gets the
+honest "couldn't reach the race data" reply within a few seconds, before any LLM call.
 
 ```bash
 ollama pull llama3.1:8b && ollama serve          # the backend defaults to localhost:11434
@@ -134,11 +134,14 @@ cd frontend && pnpm type-check
 ```
 
 The frontend uses pnpm, like the Makefile, Dockerfile and CI; `package-lock.json` is kept in
-sync for `npm ci` users. The backend suite has 174 passing tests. `tests/test_api/test_health.py::test_health_check`
+sync for `npm ci` users. The backend suite has 179 passing tests. `tests/test_api/test_health.py::test_health_check`
 needs the Docker databases and fails without them.
 
 ## Design decisions and limitations
 
+- **No data services, no model calls.** Before each turn the API tries a TCP connect to
+  TimescaleDB, Neo4j and Qdrant (1 s timeout, concurrent, cached 30 s). If none answers, the
+  no-data reply naming them comes back at once, with no LLM call.
 - **The agent checks for data before it writes.** An evaluate step scores what the tools
   returned. If every failure is an unreachable service it stops at once (re-planning can't
   revive a dead database, and each re-plan is a full LLM call); with no usable rows for other

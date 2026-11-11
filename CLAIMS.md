@@ -9,7 +9,7 @@ Updated 2026-11-11. Every quantitative/technical claim maps to a committed artif
 | Dispatch filters args to each underlying tool's signature (no signature changes) | VERIFIED | `test_dispatch_routes_and_filters_args`, `test_extra_params_reach_the_underlying_tool` | `pytest tests/test_tools/test_consolidated.py` | 2026-09-07 |
 | Long tail reachable via a **guarded text-to-SQL** tool (read-only, validated) | VERIFIED (reuses existing) | `backend/agent/validation.py`, `backend/tests/test_tools/test_sql_validation.py` | `pytest tests/test_tools/test_sql_validation.py` | 2026-09-07 |
 | Existing suite unbroken by the change | VERIFIED | pytest: 57 → **63 pass**; the 1 failure (`test_health`) is pre-existing and needs the DBs running | `pytest` | 2026-09-07 |
-| Backend suite: **174 pass**, 1 known failure (`test_health_check`, needs the Docker DBs) | VERIFIED | `backend/tests/` | `cd backend && pytest -q` | 2026-11-11 |
+| Backend suite: **179 pass**, 1 known failure (`test_health_check`, needs the Docker DBs) | VERIFIED | `backend/tests/` | `cd backend && pytest -q` | 2026-11-11 |
 | The runtime still binds the **full 92 tools** (79 TimescaleDB + 8 Neo4j + 5 vector); the 8 consolidated tools are measured, not bound | VERIFIED | `backend/agent/graph.py` (`_execute_node` passes `TIMESCALE_TOOLS`); backend log "Tool registry built with 92 tools" | run the API and send one message | 2026-11-11 |
 | Ordinary words in the example prompts never resolve to drivers/teams ("Who", "lap", "at", "of", "pit"); "Verstappen", "Norris", "Monza" do | VERIFIED | `backend/tests/test_preprocessing/test_fuzzy_matcher.py` | `pytest tests/test_preprocessing` | 2026-11-11 |
 

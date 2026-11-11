@@ -63,6 +63,9 @@ and every README claim should match what runs.
   each a 35-50 s llama3.1:8b call, so the honest notice took about 5 minutes. Now an
   iteration whose failures are all unreachable services (including services that never
   connected at startup) goes straight to the no-data reply; other no-data cases re-plan once.
+- **Preflight before any LLM call.** Even with fail-fast, a clone without Docker waited
+  ~100 s (understand + plan + re-plan on llama3.1:8b) before a tool touched a dead service.
+  A cached 1 s TCP check of the three data backends now answers at once when none is up.
 - **Disconnects cancel the agent** and log one line instead of an ASGI traceback;
   SessionState reads REDIS_URL.
 - **Missing dependency.** `agent/llm.py` imports `langchain_ollama`, which neither
@@ -71,4 +74,4 @@ and every README claim should match what runs.
 **Not done:** binding the 8 consolidated tools at runtime (the agent still binds 92);
 the README now says so.
 
-**Result:** backend 110 → 174 passing (+ the known DB-dependent `test_health_check`).
+**Result:** backend 110 → 179 passing (+ the known DB-dependent `test_health_check`).
