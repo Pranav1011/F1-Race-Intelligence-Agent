@@ -13,7 +13,12 @@ from ollama import ResponseError as OllamaResponseError
 import agent.graph as graph_module
 from agent.graph import F1Agent
 from agent.llm import LLMConfig, LLMProvider, LLMRouter, LLMUnavailableError, ModelNotPulledError
-from agent.nodes.evaluate import MAX_ITERATIONS, is_failed_result, is_usable_result
+from agent.nodes.evaluate import (
+    MAX_NO_DATA_RETRIES,
+    is_connection_failure,
+    is_failed_result,
+    is_usable_result,
+)
 from agent.schemas.query import AnalysisScope, AnalysisType, QueryUnderstanding
 
 REFUSED = "[Errno 61] Connect call failed ('127.0.0.1', 5432)"
@@ -116,7 +121,8 @@ async def test_zero_data_skips_generate_and_names_failed_sources(make_agent):
 
     assert nodes.generate_calls == 0
     assert nodes.validate_calls == 0
-    assert nodes.plan_calls == MAX_ITERATIONS + 1
+    # Every source refused the connection: no re-plan, the notice comes at once
+    assert nodes.plan_calls == 1
     assert response["message"].startswith("I couldn't reach the race data")
     assert "the race database (TimescaleDB)" in response["message"]
     assert "race report search (Qdrant)" in response["message"]
@@ -228,6 +234,59 @@ async def test_only_the_unreachable_source_is_named_as_failed(make_agent):
     assert "TimescaleDB" not in response["message"]
 
 
+CONNECTION_REFUSED = {
+    "laps_VER": [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}],
+    "stints": {"error": "[Errno 61] Connection refused"},
+    "reports": [{"error": "Connection refused"}],
+}
+
+
+async def test_unreachable_services_stop_without_any_re_plan(make_agent):
+    nodes = FakeNodes(CONNECTION_REFUSED)
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Compare Verstappen and Norris at Monza 2024", session_id="s1")
+
+    assert nodes.plan_calls == 1
+    assert nodes.generate_calls == 0
+    assert response["message"].startswith("I couldn't reach the race data")
+
+
+async def test_nothing_found_re_plans_at_most_once(make_agent):
+    nodes = FakeNodes({"laps_VER": NO_LAPS, "stints": {"rows": []}, "reports": []})
+    agent = make_agent(nodes)
+
+    await agent.chat("Monza 2031 strategy?", session_id="s1")
+
+    assert nodes.plan_calls == MAX_NO_DATA_RETRIES + 1 == 2
+    assert nodes.generate_calls == 0
+
+
+async def test_a_mix_of_dead_and_empty_sources_still_gets_one_re_plan(make_agent):
+    nodes = FakeNodes({"laps_VER": NO_LAPS, "reports": [{"error": "Connection refused"}]})
+    agent = make_agent(nodes)
+
+    await agent.chat("Monza 2024 strategy?", session_id="s1")
+
+    assert nodes.plan_calls == 2
+
+
+@pytest.mark.parametrize(
+    ("result", "unreachable"),
+    [
+        ([{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}], True),
+        ({"error": "[Errno 61] Connect call failed ('127.0.0.1', 5432)", "code": "DATABASE_QUERY_ERROR"}, True),
+        ([{"error": "[Errno 8] nodename nor servname provided, or not known"}], True),
+        ([{"error": "syntax error at or near SELECT", "code": "DATABASE_QUERY_ERROR"}], False),
+        (NO_LAPS, False),
+        ([], False),
+        ({"rows": [1]}, False),
+    ],
+)
+def test_is_connection_failure(result, unreachable):
+    assert is_connection_failure(result) is unreachable
+
+
 async def test_failed_retry_keeps_the_earlier_usable_data(make_agent):
     standings = {"results": [{"position": 1, "driver": "NOR"}]}
     nodes = FakeNodes([standings, ALL_FAILED])
@@ -235,7 +294,8 @@ async def test_failed_retry_keeps_the_earlier_usable_data(make_agent):
 
     response = await agent.chat("Monza 2024 strategy?", session_id="s1")
 
-    assert nodes.plan_calls == MAX_ITERATIONS + 1
+    # The retry hit dead services, so it stops there and answers from attempt 1
+    assert nodes.plan_calls == 2
     assert nodes.generate_calls == 1
     assert response["message"] == "Verstappen ran one stop."
     session = agent._sessions["s1"]

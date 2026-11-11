@@ -19,6 +19,10 @@ except ImportError:
 # Maximum iterations to prevent infinite loops
 MAX_ITERATIONS = 2
 
+# With no usable data at all (an empty plan, nothing found), re-plan once at
+# most: each re-plan is a full LLM call, and a second guess rarely finds more.
+MAX_NO_DATA_RETRIES = 1
+
 # Query-type specific completeness thresholds
 # Some query types need more complete data than others
 THRESHOLD_BY_QUERY_TYPE = {
@@ -67,6 +71,17 @@ SERVICE_FAILURE_CODES = frozenset({
 # Uncoded errors such as "No race data found for 2031" or "Circuit X not found"
 NOT_FOUND_MESSAGE = re.compile(r"\bno\b.*\bfound\b|\bnot found\b", re.IGNORECASE)
 
+# The service could not be reached at all. Re-planning can't fix that, so the
+# agent stops at once instead of spending more LLM calls on new plans.
+CONNECTION_FAILURE_CODES = frozenset({"DATABASE_CONNECTION_ERROR"})
+CONNECTION_FAILURE_MESSAGE = re.compile(
+    r"connection refused|connect call failed|could not connect|cannot connect"
+    r"|failed to connect|failed to establish|connection (?:reset|timed out|error)"
+    r"|nodename nor servname|name or service not known|name resolution"
+    r"|\[errno (?:8|61|111)\]|unreachable",
+    re.IGNORECASE,
+)
+
 
 def _is_not_found_error(row: Any) -> bool:
     """True for an error row saying the service answered but had no data."""
@@ -97,6 +112,29 @@ def is_failed_result(result: Any) -> bool:
         return False
     rows = result if isinstance(result, list) else [result]
     return not all(_is_not_found_error(row) for row in rows)
+
+
+def _is_connection_failure_row(row: Any) -> bool:
+    if not isinstance(row, dict) or not row.get("error"):
+        return False
+    return (
+        row.get("code") in CONNECTION_FAILURE_CODES
+        or CONNECTION_FAILURE_MESSAGE.search(str(row["error"])) is not None
+    )
+
+
+def is_connection_failure(result: Any) -> bool:
+    """True for an error result whose service could not be reached."""
+    if not is_error_result(result):
+        return False
+    rows = result if isinstance(result, list) else [result]
+    return all(_is_connection_failure_row(row) for row in rows)
+
+
+def all_failures_are_unreachable(raw_data: dict) -> bool:
+    """True when at least one tool failed and every failure is an unreachable service."""
+    errors = [result for result in raw_data.values() if is_error_result(result)]
+    return bool(errors) and all(is_connection_failure(result) for result in errors)
 
 
 def is_usable_result(result: Any) -> bool:
@@ -151,6 +189,15 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
     has_data = count_usable_results(raw_data) > 0
     out_of_retries = iteration >= MAX_ITERATIONS
 
+    # Without usable data, stop early: at once when every failure is a dead
+    # service, otherwise after MAX_NO_DATA_RETRIES re-plans.
+    unreachable = not has_data and all_failures_are_unreachable(raw_data)
+    stop_retrying = (
+        out_of_retries
+        or unreachable
+        or (not has_data and iteration >= MAX_NO_DATA_RETRIES)
+    )
+
     # A retry whose tools all failed must not throw away an earlier attempt's
     # usable data: keep the last usable data and answer from it once the
     # retries are spent.
@@ -161,7 +208,7 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
             "raw_data": raw_data,
             "processed_analysis": state.get("processed_analysis", {}),
         }
-    elif last_usable and out_of_retries:
+    elif last_usable and stop_retrying:
         restored = dict(last_usable)
         processed = ProcessedAnalysis(**last_usable["processed_analysis"])
         has_data = True
@@ -169,16 +216,16 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
 
     if has_data:
         data_outcome = DATA_OK
-    elif out_of_retries:
+    elif stop_retrying:
         data_outcome = DATA_NONE
     else:
         data_outcome = DATA_RETRY
 
     # Check if we should continue or loop
     is_sufficient = has_data and (
-        processed.completeness_score >= threshold or out_of_retries
+        processed.completeness_score >= threshold or stop_retrying
     )
-    will_loop = not is_sufficient and not out_of_retries
+    will_loop = not is_sufficient and not stop_retrying
 
     # Generate feedback if insufficient
     feedback = ""
@@ -195,9 +242,10 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
             f"has_usable_data={has_data}), looping"
         )
     elif not has_data:
+        reason = "every data service is unreachable" if unreachable else "no usable data"
         logger.warning(
-            f"Evaluation: no usable data from {len(raw_data)} tool calls after "
-            f"{iteration + 1} attempts, stopping without an answer"
+            f"Evaluation: {reason} ({len(raw_data)} tool calls, attempt "
+            f"{iteration + 1}), stopping without an answer"
         )
     else:
         logger.info(
