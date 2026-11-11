@@ -2,6 +2,9 @@
 Chat router - Handles conversation endpoints.
 """
 
+import asyncio
+import contextlib
+import json
 import logging
 import os
 import uuid
@@ -13,7 +16,7 @@ from pydantic import BaseModel
 from agent import F1Agent, get_agent
 from agent.llm import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
 from preprocessing import QueryPreprocessor, PreprocessedQuery, QueryHistoryManager, get_history_manager
-from api.streaming import StreamingContext, StreamStage, get_status_message
+from api.streaming import ClientDisconnectedError, StreamingContext, StreamStage, get_status_message
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -133,6 +136,39 @@ async def chat(message: ChatMessage):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _await_answer_or_disconnect(
+    websocket: WebSocket, agent_task: asyncio.Task
+) -> tuple[dict, dict | None]:
+    """Wait for the agent while watching the socket.
+
+    If the client disconnects first, cancel the agent so no more LLM calls are
+    spent on an answer nobody will read, and raise ClientDisconnectedError. A message
+    that arrives while answering is returned so the caller handles it next.
+    """
+    receive_task = asyncio.create_task(websocket.receive())
+    try:
+        done, _ = await asyncio.wait(
+            {agent_task, receive_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if agent_task in done:
+            return agent_task.result(), None
+
+        event = receive_task.result()
+        if event.get("type") == "websocket.disconnect":
+            agent_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await agent_task
+            raise ClientDisconnectedError()
+
+        raw = event.get("text") or event.get("bytes") or "{}"
+        return await agent_task, json.loads(raw)
+    finally:
+        if not receive_task.done():
+            receive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await receive_task
+
+
 @router.websocket("/ws")
 async def websocket_chat(websocket: WebSocket):
     """
@@ -156,11 +192,13 @@ async def websocket_chat(websocket: WebSocket):
     """
     await websocket.accept()
     agent = get_chat_agent()
+    pending: dict | None = None
 
     try:
         while True:
-            # Receive message from client
-            data = await websocket.receive_json()
+            # Receive message from client (or one that arrived mid-answer)
+            data = pending if pending is not None else await websocket.receive_json()
+            pending = None
 
             if data.get("type") != "message":
                 continue
@@ -173,7 +211,7 @@ async def websocket_chat(websocket: WebSocket):
             ctx = StreamingContext(websocket.send_json)
 
             # Send session ID back
-            await websocket.send_json({
+            await ctx.send({
                 "type": "session",
                 "session_id": session_id,
             })
@@ -226,14 +264,15 @@ async def websocket_chat(websocket: WebSocket):
                         stage_enum = StreamStage.PROCESSING
                     await ctx.status(stage_enum, message)
 
-                # Pass preprocessed hints to agent
-                result = await agent.chat(
+                # Pass preprocessed hints to agent; stop it if the client leaves
+                agent_task = asyncio.create_task(agent.chat(
                     message=content,
                     session_id=session_id,
                     user_id=user_id,
                     status_callback=status_callback,
                     preprocessed=preprocessed.to_dict(),
-                )
+                ))
+                result, pending = await _await_answer_or_disconnect(websocket, agent_task)
 
                 # Send query metadata
                 await ctx.metadata(
@@ -265,13 +304,15 @@ async def websocket_chat(websocket: WebSocket):
                 # Send completion
                 await ctx.complete(error=result.get("error"))
 
+            except ClientDisconnectedError:
+                raise
             except Exception as e:
                 logger.error(f"WebSocket chat error: {e}")
                 await ctx.error(str(e))
                 await ctx.complete(error=str(e))
 
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected")
+    except (WebSocketDisconnect, ClientDisconnectedError):
+        logger.info("WebSocket client disconnected; stopped any answer in progress")
 
 
 @router.get("/history/{session_id}")

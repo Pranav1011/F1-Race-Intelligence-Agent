@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from starlette.websockets import WebSocketDisconnect
+
 
 class StreamStage(str, Enum):
     """Stages in the agent processing pipeline."""
@@ -129,6 +131,23 @@ def get_tool_message(tool_name: str) -> str:
     return TOOL_MESSAGES.get(tool_name, f"Running {tool_name}...")
 
 
+class ClientDisconnectedError(Exception):
+    """The client closed the WebSocket; stop working on its answer."""
+
+
+def is_closed_socket_error(error: BaseException) -> bool:
+    """True for the errors a send raises once the client has gone away."""
+    if isinstance(error, (WebSocketDisconnect, ConnectionError)):
+        return True
+    # Starlette: 'Cannot call "send" once a close message has been sent.'
+    # Uvicorn: "Unexpected ASGI message 'websocket.send', after sending
+    # 'websocket.close' or response already completed."
+    return isinstance(error, RuntimeError) and (
+        "close message has been sent" in str(error)
+        or "after sending 'websocket.close'" in str(error)
+    )
+
+
 class StreamingContext:
     """
     Context manager for tracking streaming progress.
@@ -148,11 +167,24 @@ class StreamingContext:
         Args:
             send_func: Async function to send JSON messages
         """
-        self.send = send_func
+        self._send_func = send_func
+        self.closed = False
         self.current_stage: StreamStage | None = None
         self.active_tools: dict[str, dict] = {}
         self.tool_count = 0
         self.tools_completed = 0
+
+    async def send(self, payload: dict):
+        """Send one event; raise ClientDisconnectedError once the socket is closed."""
+        if self.closed:
+            raise ClientDisconnectedError()
+        try:
+            await self._send_func(payload)
+        except Exception as e:
+            if not is_closed_socket_error(e):
+                raise
+            self.closed = True
+            raise ClientDisconnectedError() from e
 
     async def __aenter__(self):
         return self
