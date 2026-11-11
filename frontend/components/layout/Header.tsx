@@ -1,6 +1,6 @@
 'use client'
 
-import { Loader2, Menu, PanelRightClose, PanelRightOpen, Wifi, WifiOff, Zap } from 'lucide-react'
+import { Loader2, Menu, PanelRightClose, PanelRightOpen, Wifi, WifiOff } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useUIStore } from '@/stores/ui-store'
 import { ConnectionStatus, useChatStore } from '@/stores/chat-store'
@@ -58,57 +58,33 @@ export function Header() {
 
   return (
     <header className="relative flex items-center justify-between px-4 py-3 bg-background-primary/90 backdrop-blur-xl border-b border-white/5">
-      {/* Subtle gradient overlay */}
-      <div className="absolute inset-0 bg-gradient-to-r from-f1-red/5 via-transparent to-transparent pointer-events-none" />
-
       <div className="relative flex items-center gap-4">
         {/* Mobile menu button */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+        <button
           onClick={toggleSidebar}
           className="p-2 hover:bg-white/5 rounded-xl transition-colors lg:hidden"
-          aria-label="Toggle sidebar"
+          aria-label={sidebarOpen ? 'Close chat history' : 'Open chat history'}
+          aria-expanded={sidebarOpen}
+          aria-controls="chat-sidebar"
         >
-          <Menu className="w-5 h-5 text-text-muted" />
-        </motion.button>
+          <Menu className="w-5 h-5 text-text-muted" aria-hidden="true" />
+        </button>
 
         {/* Logo and title */}
         <div className="flex items-center gap-3">
-          {/* Animated logo */}
-          <motion.div
-            className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-f1-red to-f1-redDark"
-            style={{
-              boxShadow: '0 4px 15px rgba(227, 25, 55, 0.3)',
-            }}
+          <div
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-f1-red"
+            aria-hidden="true"
           >
-            {/* Pulsing glow */}
-            <motion.div
-              className="absolute inset-0 rounded-xl bg-f1-red"
-              animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0, 0.3] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-            <span className="relative text-xl">🏎️</span>
-          </motion.div>
+            <span className="text-lg">🏎️</span>
+          </div>
 
           <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-text-primary tracking-tight">
-                F1 Race Intelligence
-              </h1>
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium
-                         bg-gradient-to-r from-accent-orange/20 to-data-warning/20
-                         text-accent-orange rounded-full border border-accent-orange/30"
-              >
-                <Zap className="w-2.5 h-2.5" />
-                BETA
-              </motion.span>
-            </div>
-            <span className="hidden sm:block text-[10px] text-text-muted tracking-wider">
-              AI-POWERED RACE ANALYSIS
+            <h1 className="text-base font-semibold text-text-primary tracking-tight">
+              F1 Race Intelligence
+            </h1>
+            <span className="hidden sm:block text-xs text-text-muted">
+              Race analysis agent · 2018–2024 seasons
             </span>
           </div>
         </div>

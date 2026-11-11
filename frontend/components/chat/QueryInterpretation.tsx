@@ -14,6 +14,8 @@ export function QueryInterpretation({ interpretation, isVisible }: QueryInterpre
 
   const hasCorrections = interpretation.corrections.length > 0
   const wasExpanded = interpretation.expanded !== interpretation.original
+  // "General" at 0% means the classifier found nothing; don't show it as a finding
+  const hasIntent = interpretation.intent !== 'general' && interpretation.confidence > 0
 
   // Don't show if nothing interesting happened
   if (!hasCorrections && !wasExpanded) return null
@@ -37,11 +39,11 @@ export function QueryInterpretation({ interpretation, isVisible }: QueryInterpre
                   <span className="text-text-muted">Auto-corrected: </span>
                   {interpretation.corrections.map((c, i) => (
                     <span key={i} className="inline-flex items-center gap-1">
-                      <span className="text-data-negative/70 line-through">{c.original}</span>
-                      <ArrowRight className="w-3 h-3 text-text-muted/50" />
+                      <span className="text-text-secondary line-through">{c.original}</span>
+                      <ArrowRight className="w-3 h-3 text-text-muted" />
                       <span className="text-data-positive">{c.corrected}</span>
                       {i < interpretation.corrections.length - 1 && (
-                        <span className="text-text-muted/50 mx-1">•</span>
+                        <span className="text-text-muted mx-1">•</span>
                       )}
                     </span>
                   ))}
@@ -61,15 +63,17 @@ export function QueryInterpretation({ interpretation, isVisible }: QueryInterpre
             )}
 
             {/* Intent badge */}
-            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
-              <span className="text-xs text-text-muted/70">Intent:</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${getIntentColor(interpretation.intent)}`}>
-                {formatIntent(interpretation.intent)}
-              </span>
-              <span className="text-xs text-text-muted/60">
-                ({Math.round(interpretation.confidence * 100)}% confidence)
-              </span>
-            </div>
+            {hasIntent && (
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
+                <span className="text-xs text-text-muted">Intent:</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${getIntentColor(interpretation.intent)}`}>
+                  {formatIntent(interpretation.intent)}
+                </span>
+                <span className="text-xs text-text-muted">
+                  ({Math.round(interpretation.confidence * 100)}% confidence)
+                </span>
+              </div>
+            )}
           </div>
         </motion.div>
       )}
@@ -89,7 +93,7 @@ function getIntentColor(intent: string): string {
     overtaking: 'bg-red-500/20 text-red-300',
     reliability: 'bg-gray-500/20 text-gray-300',
     weather: 'bg-sky-500/20 text-sky-300',
-    general: 'bg-white/10 text-white/70',
+    general: 'bg-white/10 text-text-secondary',
   }
   return colors[intent] || colors.general
 }

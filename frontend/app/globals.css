@@ -31,6 +31,11 @@
     scroll-behavior: smooth;
   }
 
+  /* Keyboard focus that reads on every dark surface */
+  :focus-visible {
+    @apply outline-none ring-2 ring-f1-redLight ring-offset-2 ring-offset-background-primary;
+  }
+
   body {
     @apply bg-background-primary text-text-primary antialiased;
     font-feature-settings: "cv11", "ss01";
@@ -247,4 +252,17 @@
 
 .racing-stripe {
   animation: raceStripe 2s ease-in-out infinite;
+}
+
+/* Honour the OS "reduce motion" setting for CSS animations and transitions;
+   Framer Motion follows it through <MotionConfig reducedMotion="user">. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -71,7 +71,7 @@ const config: Config = {
         text: {
           primary: "#F9FAFB",
           secondary: "#A1A1AA",
-          muted: "#71717A",
+          muted: "#9494A0",        // >= 4.99:1 on every surface (WCAG AA)
           accent: "#E31937",
         },
 

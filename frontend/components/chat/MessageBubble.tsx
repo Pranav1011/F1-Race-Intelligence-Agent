@@ -5,7 +5,8 @@ import { Message } from '@/types'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, BarChart3 } from 'lucide-react'
+import { hasChartData, useUIStore } from '@/stores/ui-store'
 
 interface MessageBubbleProps {
   message: Message
@@ -117,6 +118,8 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const hasError = !isUser && Boolean(message.error)
+  const setArtifact = useUIStore((s) => s.setArtifact)
+  const chart = !isUser && hasChartData(message.visualization) ? message.visualization : null
 
   // Parse query type for display
   const queryType = useMemo(() => {
@@ -205,21 +208,32 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
         </div>
 
         {/* Metadata footer for assistant messages */}
-        {!isUser && !isStreaming && message.metadata && (
+        {!isUser && !isStreaming && (message.metadata || chart) && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             className="flex items-center gap-3 mt-2 px-2"
           >
-            {queryType && (
+            {message.metadata && queryType && !hasError && (
               <span className="text-xs text-text-muted capitalize flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-f1-red" />
                 {queryType}
               </span>
             )}
-            {message.metadata.confidence !== undefined && (
+            {/* A failed or no-data reply has nothing to be confident about */}
+            {message.metadata?.confidence !== undefined && !hasError && (
               <ConfidenceBadge confidence={message.metadata.confidence} />
+            )}
+            {chart && (
+              <button
+                onClick={() => setArtifact(chart)}
+                className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary
+                           px-2.5 py-1 rounded-full border border-white/10 hover:border-white/20 transition-colors"
+              >
+                <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />
+                View chart
+              </button>
             )}
           </motion.div>
         )}

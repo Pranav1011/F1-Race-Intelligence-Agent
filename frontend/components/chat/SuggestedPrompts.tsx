@@ -1,110 +1,55 @@
 'use client'
 
-import { motion } from 'framer-motion'
-import { TrendingUp, Trophy, Gauge, Timer, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 
 interface SuggestedPromptsProps {
   onSelect: (prompt: string) => void
+  disabled?: boolean
 }
 
 const SUGGESTED_PROMPTS = [
-  {
-    icon: Trophy,
-    text: 'Who won the 2024 Bahrain GP?',
-    category: 'Race Results',
-    gradient: 'from-accent-orange/15 to-data-warning/15',
-    borderColor: 'border-accent-orange/20',
-    iconColor: 'text-accent-orange',
-  },
-  {
-    icon: TrendingUp,
-    text: "Compare Verstappen and Norris's lap times at Monaco 2024",
-    category: 'Head-to-Head',
-    gradient: 'from-accent-blue/15 to-accent-purple/15',
-    borderColor: 'border-accent-blue/20',
-    iconColor: 'text-accent-blue',
-  },
-  {
-    icon: Gauge,
-    text: "Why did Ferrari's strategy fail at Silverstone?",
-    category: 'Strategy Analysis',
-    gradient: 'from-f1-red/15 to-accent-purple/15',
-    borderColor: 'border-f1-red/20',
-    iconColor: 'text-f1-red',
-  },
-  {
-    icon: Timer,
-    text: 'Show me the fastest pit stops of 2024',
-    category: 'Statistics',
-    gradient: 'from-accent-emerald/15 to-accent-cyan/15',
-    borderColor: 'border-accent-emerald/20',
-    iconColor: 'text-accent-emerald',
-  },
+  { category: 'Race result', text: 'Who won the 2024 Bahrain GP?' },
+  { category: 'Head-to-head', text: "Compare Verstappen and Norris's lap times at Monaco 2024" },
+  { category: 'Strategy', text: "Why did Ferrari's strategy fail at Silverstone?" },
+  { category: 'Pit stops', text: 'Show me the fastest pit stops of 2024' },
 ]
 
-export function SuggestedPrompts({ onSelect }: SuggestedPromptsProps) {
+export function SuggestedPrompts({ onSelect, disabled = false }: SuggestedPromptsProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
-      {SUGGESTED_PROMPTS.map((prompt, i) => {
-        const IconComponent = prompt.icon
-        return (
-          <motion.button
-            key={i}
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ delay: 0.3 + i * 0.1, duration: 0.4 }}
-            whileHover={{ scale: 1.02, y: -2 }}
-            whileTap={{ scale: 0.98 }}
+    <ul className="w-full divide-y divide-white/5 border-y border-white/5">
+      {SUGGESTED_PROMPTS.map((prompt) => (
+        <li key={prompt.text}>
+          <button
             onClick={() => onSelect(prompt.text)}
-            className={`relative group flex items-start gap-4 p-5 rounded-2xl border ${prompt.borderColor}
-                       bg-gradient-to-br ${prompt.gradient} backdrop-blur-sm
-                       hover:border-white/20 transition-all duration-300 text-left overflow-hidden`}
-            style={{
-              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
-            }}
+            disabled={disabled}
+            className="group relative flex w-full items-center gap-4 py-3.5 pl-4 pr-3 text-left
+                       transition-colors hover:bg-white/[0.03] disabled:cursor-not-allowed
+                       disabled:hover:bg-transparent"
           >
-            {/* Hover glow effect */}
-            <motion.div
-              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              style={{
-                background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05) 0%, transparent 70%)',
-              }}
+            {/* Pit-lane marker: lights up on hover and keyboard focus */}
+            <span
+              aria-hidden="true"
+              className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-white/10 transition-colors
+                         group-hover:bg-f1-red group-focus-visible:bg-f1-red group-disabled:bg-white/10"
             />
-
-            {/* Icon container */}
-            <div className={`relative flex-shrink-0 p-3 rounded-xl bg-black/30 ${prompt.iconColor}`}>
-              <IconComponent className="w-5 h-5" />
-            </div>
-
-            {/* Text content */}
-            <div className="relative flex-1 min-w-0">
-              <p className="text-sm text-text-primary/90 group-hover:text-text-primary transition-colors line-clamp-2 pr-6">
-                {prompt.text}
-              </p>
-              <p className="text-xs text-text-muted mt-2 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-current" />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-4">
+              <span className="shrink-0 font-mono text-[11px] uppercase tracking-wider text-text-muted sm:w-28">
                 {prompt.category}
-              </p>
-            </div>
-
-            {/* Arrow indicator */}
-            <motion.div
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 group-hover:text-white/50 transition-colors"
-              initial={{ x: 0 }}
-              whileHover={{ x: 3 }}
-            >
-              <ArrowRight className="w-4 h-4" />
-            </motion.div>
-
-            {/* Corner accent */}
-            <div className="absolute top-0 right-0 w-16 h-16 overflow-hidden">
-              <div className="absolute top-0 right-0 w-px h-8 bg-gradient-to-b from-white/20 to-transparent" />
-              <div className="absolute top-0 right-0 w-8 h-px bg-gradient-to-l from-white/20 to-transparent" />
-            </div>
-          </motion.button>
-        )
-      })}
-    </div>
+              </span>
+              <span className="text-sm text-text-primary group-disabled:text-text-secondary">
+                {prompt.text}
+              </span>
+            </span>
+            <ArrowRight
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-text-muted transition-transform duration-200
+                         group-hover:translate-x-0.5 group-hover:text-f1-redLight group-disabled:translate-x-0
+                         group-disabled:text-text-muted"
+            />
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useCallback, useState } from 'react'
+import { MotionConfig } from 'framer-motion'
 import { useChatStore } from '@/stores/chat-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -32,7 +33,7 @@ export default function Home() {
     loadFromStorage,
   } = useChatStore()
 
-  const { setArtifact, sidebarOpen } = useUIStore()
+  const { setArtifact } = useUIStore()
 
   // Track current status message for loading indicator
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -121,34 +122,37 @@ export default function Home() {
   const interpretation = activeSessionId ? interpretations[activeSessionId] ?? null : null
 
   return (
-    <div className="flex h-screen bg-background-primary text-text-primary overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar />
+    <MotionConfig reducedMotion="user">
+      <div className="flex h-screen bg-background-primary text-text-primary overflow-hidden">
+        {/* Sidebar */}
+        <Sidebar />
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <Header />
+        {/* Main content area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Header */}
+          <Header />
 
-        {/* Chat + Artifact Panel */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Chat area */}
-          <main className="flex-1 min-w-0">
-            <ChatArea
-              messages={messages}
-              isStreaming={isStreamingHere}
-              inputDisabled={isStreaming}
-              onSendMessage={handleSendMessage}
-              statusMessage={isStreamingHere ? statusMessage : null}
-              interpretation={interpretation}
-              showInterpretation={interpretation !== null}
-            />
-          </main>
+          {/* Chat + Artifact Panel */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Chat area */}
+            <main className="flex-1 min-w-0">
+              <ChatArea
+                messages={messages}
+                isStreaming={isStreamingHere}
+                inputDisabled={isStreaming}
+                answeringElsewhere={isStreaming && !isStreamingHere}
+                onSendMessage={handleSendMessage}
+                statusMessage={isStreamingHere ? statusMessage : null}
+                interpretation={interpretation}
+                showInterpretation={interpretation !== null}
+              />
+            </main>
 
-          {/* Artifact Panel */}
-          <ArtifactPanel />
+            {/* Artifact Panel */}
+            <ArtifactPanel />
+          </div>
         </div>
       </div>
-    </div>
+    </MotionConfig>
   )
 }

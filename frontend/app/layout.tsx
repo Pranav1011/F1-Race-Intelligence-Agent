@@ -14,10 +14,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "F1 Race Intelligence Agent",
-  description: "AI-powered F1 race analysis - Your Race Engineer Co-Pilot",
-  icons: {
-    icon: "/favicon.ico",
-  },
+  description: "Ask questions about F1 races from 2018 to 2024 and get answers built from lap, pit and telemetry data.",
 };
 
 export default function RootLayout({

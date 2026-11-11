@@ -8,223 +8,51 @@ import { MessageInput } from './MessageInput'
 import { StatusIndicator } from './StatusIndicator'
 import { SuggestedPrompts } from './SuggestedPrompts'
 import { QueryInterpretation } from './QueryInterpretation'
-import {
-  Gauge,
-  Trophy,
-  Timer,
-  Users,
-  TrendingUp,
-  Zap,
-  BarChart3,
-  Activity,
-} from 'lucide-react'
 
 interface ChatAreaProps {
   messages: Message[]
   isStreaming: boolean
   // True while any session is streaming: one answer is in flight at a time
   inputDisabled: boolean
+  // True when the answer in flight belongs to another chat
+  answeringElsewhere?: boolean
   onSendMessage: (content: string) => void
   statusMessage?: string | null
   interpretation?: QueryInterpretationType | null
   showInterpretation?: boolean
 }
 
-// Animated background with subtle grid
-function AnimatedBackground() {
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {/* Gradient orbs */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-f1-red/5 rounded-full blur-[120px] animate-pulse" />
-      <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-accent-purple/5 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '1s' }} />
-
-      {/* Grid pattern */}
-      <div
-        className="absolute inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)
-          `,
-          backgroundSize: '60px 60px',
-        }}
-      />
-
-      {/* Top racing stripe */}
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-f1-red/50 to-transparent" />
-    </div>
-  )
-}
-
-// Feature card for empty state
-function FeatureCard({
-  icon: Icon,
-  title,
-  description,
-  gradient,
+function EmptyState({
+  onSelect,
+  disabled,
 }: {
-  icon: typeof Gauge
-  title: string
-  description: string
-  gradient: string
+  onSelect: (content: string) => void
+  disabled: boolean
 }) {
   return (
-    <motion.div
-      whileHover={{ scale: 1.02, y: -2 }}
-      className="relative group p-4 rounded-xl bg-surface/50 border border-white/5
-                 hover:border-white/10 transition-all duration-300 cursor-default"
-    >
-      {/* Hover glow */}
-      <div className={`absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100
-                       transition-opacity duration-300 bg-gradient-to-br ${gradient} blur-xl -z-10`} />
-
-      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${gradient}
-                       flex items-center justify-center mb-3`}>
-        <Icon className="w-5 h-5 text-white" />
-      </div>
-      <h3 className="text-sm font-semibold text-text-primary mb-1">{title}</h3>
-      <p className="text-xs text-text-muted leading-relaxed">{description}</p>
-    </motion.div>
-  )
-}
-
-// Stats badge for empty state
-function StatBadge({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="flex flex-col items-center p-3 rounded-lg bg-surface/30 border border-white/5">
-      <span className="text-lg font-bold text-text-primary">{value}</span>
-      <span className="text-[10px] text-text-muted uppercase tracking-wider">{label}</span>
-    </div>
-  )
-}
-
-// Stunning empty state with F1 branding
-function EmptyState({ onSelect }: { onSelect: (content: string) => void }) {
-  const features = [
-    {
-      icon: Gauge,
-      title: 'Lap Analysis',
-      description: 'Deep dive into lap times, sector splits, and pace evolution',
-      gradient: 'from-f1-red/20 to-accent-orange/20',
-    },
-    {
-      icon: Users,
-      title: 'Driver Comparisons',
-      description: 'Head-to-head analysis between any drivers',
-      gradient: 'from-accent-blue/20 to-accent-cyan/20',
-    },
-    {
-      icon: TrendingUp,
-      title: 'Strategy Insights',
-      description: 'Pit stop strategies, tire compounds, and race dynamics',
-      gradient: 'from-accent-emerald/20 to-accent-cyan/20',
-    },
-    {
-      icon: BarChart3,
-      title: 'Visualizations',
-      description: 'Interactive charts and data visualizations',
-      gradient: 'from-accent-purple/20 to-accent-blue/20',
-    },
-  ]
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full px-6 py-12">
+    <div className="flex min-h-full flex-col justify-center px-4 py-10 sm:px-6">
       <motion.div
-        initial={{ opacity: 0, y: 30 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-        className="text-center max-w-3xl w-full"
+        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        className="mx-auto w-full max-w-2xl"
       >
-        {/* Hero Section */}
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="mb-8"
-        >
-          {/* Logo/Icon with glow */}
-          <div className="relative inline-flex mb-6">
-            <div className="absolute inset-0 bg-f1-red/30 rounded-full blur-2xl scale-150" />
-            <motion.div
-              animate={{
-                boxShadow: [
-                  '0 0 30px rgba(227, 25, 55, 0.3)',
-                  '0 0 50px rgba(227, 25, 55, 0.5)',
-                  '0 0 30px rgba(227, 25, 55, 0.3)',
-                ]
-              }}
-              transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-              className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-f1-red to-f1-redDark
-                         flex items-center justify-center border border-white/10"
-            >
-              <Activity className="w-10 h-10 text-white" />
-            </motion.div>
-          </div>
+        <p className="mb-3 font-mono text-xs uppercase tracking-[0.18em] text-f1-redLight">
+          Pit wall · 2018–2024
+        </p>
+        <h2 className="text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">
+          Ask about any race.
+        </h2>
+        <p className="mt-3 max-w-xl leading-relaxed text-text-secondary">
+          Lap times, tyre strategy, pit stops and results. Answers are built from the race data
+          you have ingested, and say so when that data is missing. Charts open beside the chat
+          when there is something to plot.
+        </p>
 
-          {/* Title with gradient */}
-          <h1 className="text-4xl md:text-5xl font-bold mb-3">
-            <span className="text-gradient">F1 Race Intelligence</span>
-          </h1>
-          <p className="text-lg text-text-secondary max-w-xl mx-auto leading-relaxed">
-            Your AI-powered pit wall engineer. Analyze races, compare drivers,
-            and uncover strategic insights from Formula 1 data.
-          </p>
-        </motion.div>
-
-        {/* Quick Stats */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-          className="flex items-center justify-center gap-4 mb-10"
-        >
-          <StatBadge value="2024" label="Season" />
-          <StatBadge value="24" label="Circuits" />
-          <StatBadge value="20" label="Drivers" />
-          <StatBadge value="10" label="Teams" />
-        </motion.div>
-
-        {/* Feature Cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10"
-        >
-          {features.map((feature, idx) => (
-            <motion.div
-              key={feature.title}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.3 + idx * 0.1 }}
-            >
-              <FeatureCard {...feature} />
-            </motion.div>
-          ))}
-        </motion.div>
-
-        {/* Suggested Prompts */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.5 }}
-        >
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Zap className="w-4 h-4 text-f1-red" />
-            <span className="text-sm font-medium text-text-secondary">Try asking</span>
-          </div>
-          <SuggestedPrompts onSelect={onSelect} />
-        </motion.div>
-
-        {/* Bottom hint */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.7 }}
-          className="mt-8 text-xs text-text-muted"
-        >
-          Press <kbd className="px-1.5 py-0.5 rounded bg-surface text-text-secondary mx-1">Enter</kbd> to send
-        </motion.p>
+        <h3 className="mb-2 mt-8 text-xs font-medium uppercase tracking-wider text-text-muted">
+          Try one
+        </h3>
+        <SuggestedPrompts onSelect={onSelect} disabled={disabled} />
       </motion.div>
     </div>
   )
@@ -234,6 +62,7 @@ export function ChatArea({
   messages,
   isStreaming,
   inputDisabled,
+  answeringElsewhere = false,
   onSendMessage,
   statusMessage,
   interpretation,
@@ -261,15 +90,13 @@ export function ChatArea({
 
   return (
     <div className="relative flex flex-col h-full bg-background-primary">
-      <AnimatedBackground />
-
       {/* Messages area */}
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scrollbar-thin relative z-10"
       >
         {isEmpty ? (
-          <EmptyState onSelect={onSendMessage} />
+          <EmptyState onSelect={onSendMessage} disabled={inputDisabled} />
         ) : (
           <div className="max-w-4xl mx-auto p-4 md:p-6">
             <AnimatePresence mode="popLayout">
@@ -314,15 +141,20 @@ export function ChatArea({
         )}
       </div>
 
-      {/* Input area with modern glass effect */}
-      <div className="relative z-20">
-        {/* Gradient fade */}
-        <div className="absolute bottom-full left-0 right-0 h-24 bg-gradient-to-t from-background-primary via-background-primary/80 to-transparent pointer-events-none" />
-
-        <div className="bg-background-primary/90 backdrop-blur-xl border-t border-white/5">
-          <div className="max-w-4xl mx-auto">
-            <MessageInput onSend={onSendMessage} disabled={inputDisabled} />
-          </div>
+      {/* Input area */}
+      <div className="relative z-20 border-t border-white/5 bg-background-primary">
+        <div className="max-w-4xl mx-auto">
+          <MessageInput
+            onSend={onSendMessage}
+            disabled={inputDisabled}
+            disabledReason={
+              answeringElsewhere
+                ? 'Another chat is still answering. You can send here when it finishes.'
+                : inputDisabled
+                  ? 'Answering… you can send your next question when this finishes.'
+                  : null
+            }
+          />
         </div>
       </div>
     </div>
