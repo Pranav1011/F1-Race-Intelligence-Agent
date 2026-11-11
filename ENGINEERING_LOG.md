@@ -56,7 +56,10 @@ and every README claim should match what runs.
 - **UI:** generic decoration removed from the empty state, AA text contrast, reduced
   motion, mobile drawer closed by default, a reason shown when sending is paused.
 
+- **Missing dependency.** `agent/llm.py` imports `langchain_ollama`, which neither
+  `pyproject.toml` nor the Docker image installed, so a fresh install failed at import.
+
 **Not done:** binding the 8 consolidated tools at runtime (the agent still binds 92);
 the README now says so.
 
-**Result:** backend 110 → 135 passing (+ the known DB-dependent `test_health_check`).
+**Result:** backend 110 → 136 passing (+ the known DB-dependent `test_health_check`).

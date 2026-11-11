@@ -133,7 +133,7 @@ cd backend && .venv/bin/pytest          # or `make test` inside the running stac
 cd frontend && npm run type-check
 ```
 
-The backend suite has 135 passing tests. `tests/test_api/test_health.py::test_health_check`
+The backend suite has 136 passing tests. `tests/test_api/test_health.py::test_health_check`
 needs the Docker databases and fails without them.
 
 ## Design decisions and limitations

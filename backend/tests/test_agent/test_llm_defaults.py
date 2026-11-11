@@ -55,3 +55,13 @@ def test_ollama_url_defaults_to_localhost_outside_docker(monkeypatch):
 
     assert DEFAULT_OLLAMA_BASE_URL == "http://localhost:11434"
     assert agent.ollama_base_url == DEFAULT_OLLAMA_BASE_URL
+
+
+def test_local_model_client_is_a_declared_dependency():
+    # agent/llm.py imports ChatOllama from langchain_ollama; a fresh install
+    # (pip/uv from pyproject, or the Docker image) failed at import without it
+    pyproject = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text()
+    assert '"langchain-ollama' in pyproject
+    dockerfile = Path(__file__).resolve().parents[2] / "Dockerfile"
+    if dockerfile.exists():
+        assert "langchain-ollama" in dockerfile.read_text()
