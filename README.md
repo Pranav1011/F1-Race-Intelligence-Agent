@@ -134,15 +134,19 @@ cd frontend && pnpm type-check
 ```
 
 The frontend uses pnpm, like the Makefile, Dockerfile and CI; `package-lock.json` is kept in
-sync for `npm ci` users. The backend suite has 155 passing tests. `tests/test_api/test_health.py::test_health_check`
+sync for `npm ci` users. The backend suite has 174 passing tests. `tests/test_api/test_health.py::test_health_check`
 needs the Docker databases and fails without them.
 
 ## Design decisions and limitations
 
 - **The agent checks for data before it writes.** An evaluate step scores what the tools
-  returned; with no usable rows it retries planning once, then routes to a no-data reply that
-  never calls the model. This was added after the agent produced plausible but invented pit
-  tables with every database down.
+  returned. If every failure is an unreachable service it stops at once (re-planning can't
+  revive a dead database, and each re-plan is a full LLM call); with no usable rows for other
+  reasons it re-plans once. Either way it ends in a no-data reply that never calls the model.
+  This was added after the agent produced plausible but invented pit tables with every
+  database down.
+- **Leaving stops the work.** If the browser disconnects mid-answer, the API cancels the
+  agent instead of finishing an answer nobody will read.
 - **Entity matching favours precision.** Fuzzy matches need 4+ characters and 0.85
   similarity, and a stopword list blocks words such as "at" (an AlphaTauri alias) or "pit".
   Some real typos ("perz") are therefore left for the model to interpret.

@@ -59,10 +59,16 @@ and every README claim should match what runs.
 - **Years read against the data.** "this season" / "last season" count back from 2024
   instead of the calendar year (2026, no data); a follow-up keeps the chat's previous year;
   any year the user didn't type is shown on the interpretation card.
+- **Fail fast on dead services.** With the databases down, evaluate re-planned twice more,
+  each a 35-50 s llama3.1:8b call, so the honest notice took about 5 minutes. Now an
+  iteration whose failures are all unreachable services (including services that never
+  connected at startup) goes straight to the no-data reply; other no-data cases re-plan once.
+- **Disconnects cancel the agent** and log one line instead of an ASGI traceback;
+  SessionState reads REDIS_URL.
 - **Missing dependency.** `agent/llm.py` imports `langchain_ollama`, which neither
   `pyproject.toml` nor the Docker image installed, so a fresh install failed at import.
 
 **Not done:** binding the 8 consolidated tools at runtime (the agent still binds 92);
 the README now says so.
 
-**Result:** backend 110 → 155 passing (+ the known DB-dependent `test_health_check`).
+**Result:** backend 110 → 174 passing (+ the known DB-dependent `test_health_check`).
