@@ -17,6 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 
 class StreamStage(str, Enum):
     """Stages in the agent processing pipeline."""
+
     PREPROCESSING = "preprocessing"
     UNDERSTANDING = "understanding"
     PLANNING = "planning"
@@ -32,6 +33,7 @@ class StreamStage(str, Enum):
 @dataclass
 class StatusMessage:
     """A status message for the UI."""
+
     stage: StreamStage
     message: str
     detail: str | None = None
@@ -203,13 +205,15 @@ class StreamingContext:
     ):
         """Send a status update."""
         self.current_stage = stage
-        await self.send({
-            "type": "status",
-            "stage": stage.value,
-            "message": message or get_status_message(stage),
-            "detail": detail,
-            "progress": progress,
-        })
+        await self.send(
+            {
+                "type": "status",
+                "stage": stage.value,
+                "message": message or get_status_message(stage),
+                "detail": detail,
+                "progress": progress,
+            }
+        )
 
     async def tool_start(
         self,
@@ -225,13 +229,15 @@ class StreamingContext:
             "params": params or {},
         }
 
-        await self.send({
-            "type": "tool_start",
-            "tool_id": tid,
-            "tool_name": tool_name,
-            "message": get_tool_message(tool_name),
-            "params": params,
-        })
+        await self.send(
+            {
+                "type": "tool_start",
+                "tool_id": tid,
+                "tool_name": tool_name,
+                "message": get_tool_message(tool_name),
+                "params": params,
+            }
+        )
 
         return tid
 
@@ -242,12 +248,14 @@ class StreamingContext:
         message: str | None = None,
     ):
         """Update progress for a running tool."""
-        await self.send({
-            "type": "tool_progress",
-            "tool_id": tool_id,
-            "progress": progress,
-            "message": message,
-        })
+        await self.send(
+            {
+                "type": "tool_progress",
+                "tool_id": tool_id,
+                "progress": progress,
+                "message": message,
+            }
+        )
 
     async def tool_end(
         self,
@@ -259,13 +267,15 @@ class StreamingContext:
         self.tools_completed += 1
         tool_info = self.active_tools.pop(tool_id, {})
 
-        await self.send({
-            "type": "tool_end",
-            "tool_id": tool_id,
-            "tool_name": tool_info.get("name"),
-            "success": success,
-            "result_summary": result_summary,
-        })
+        await self.send(
+            {
+                "type": "tool_end",
+                "tool_id": tool_id,
+                "tool_name": tool_info.get("name"),
+                "success": success,
+                "result_summary": result_summary,
+            }
+        )
 
         # Update overall progress
         if self.tool_count > 0:
@@ -285,15 +295,17 @@ class StreamingContext:
         year_note: str | None = None,
     ):
         """Send interpreted query info."""
-        await self.send({
-            "type": "interpreted",
-            "original": original,
-            "expanded": expanded,
-            "corrections": corrections,
-            "intent": intent,
-            "confidence": confidence,
-            "year_note": year_note,
-        })
+        await self.send(
+            {
+                "type": "interpreted",
+                "original": original,
+                "expanded": expanded,
+                "corrections": corrections,
+                "intent": intent,
+                "confidence": confidence,
+                "year_note": year_note,
+            }
+        )
 
     async def metadata(
         self,
@@ -302,42 +314,52 @@ class StreamingContext:
         confidence: float,
     ):
         """Send query metadata."""
-        await self.send({
-            "type": "metadata",
-            "query_type": query_type,
-            "response_type": response_type,
-            "confidence": confidence,
-        })
+        await self.send(
+            {
+                "type": "metadata",
+                "query_type": query_type,
+                "response_type": response_type,
+                "confidence": confidence,
+            }
+        )
 
     async def visualization(self, spec: dict):
         """Send a visualization specification."""
-        await self.send({
-            "type": "visualization",
-            "spec": spec,
-        })
+        await self.send(
+            {
+                "type": "visualization",
+                "spec": spec,
+            }
+        )
 
     async def token(self, text: str):
         """Send a streaming token."""
-        await self.send({
-            "type": "token",
-            "token": text,
-        })
+        await self.send(
+            {
+                "type": "token",
+                "token": text,
+            }
+        )
 
     async def complete(self, error: str | None = None):
         """Send completion message."""
         self.current_stage = StreamStage.COMPLETE
-        await self.send({
-            "type": "done",
-            "error": error,
-            "message": get_status_message(StreamStage.COMPLETE) if not error else None,
-        })
+        await self.send(
+            {
+                "type": "done",
+                "error": error,
+                "message": get_status_message(StreamStage.COMPLETE) if not error else None,
+            }
+        )
 
     async def error(self, message: str):
         """Send an error message."""
-        await self.send({
-            "type": "error",
-            "error": message,
-        })
+        await self.send(
+            {
+                "type": "error",
+                "error": message,
+            }
+        )
 
 
 # WebSocket event types for frontend reference

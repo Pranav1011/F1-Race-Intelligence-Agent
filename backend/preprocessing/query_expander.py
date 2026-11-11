@@ -46,6 +46,7 @@ def describe_year(year: int, source: str) -> str | None:
 @dataclass
 class ExpandedQuery:
     """Result of query expansion."""
+
     original: str
     expanded: str
     drivers: list[str] = field(default_factory=list)  # Driver codes
@@ -183,14 +184,8 @@ class QueryExpander:
                 entities = list(match.groups())
 
                 # Determine comparison type (driver vs team)
-                driver_count = sum(
-                    1 for e in entities
-                    if self.fuzzy_matcher.match_driver(e)
-                )
-                team_count = sum(
-                    1 for e in entities
-                    if self.fuzzy_matcher.match_team(e)
-                )
+                driver_count = sum(1 for e in entities if self.fuzzy_matcher.match_driver(e))
+                team_count = sum(1 for e in entities if self.fuzzy_matcher.match_team(e))
 
                 if driver_count >= team_count:
                     comp_type = "driver"

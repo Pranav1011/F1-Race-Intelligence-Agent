@@ -40,7 +40,9 @@ def mock_db_pool():
     """Create a mock database connection pool."""
     mock_pool = AsyncMock()
     mock_conn = AsyncMock()
-    mock_pool.acquire = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn)))
+    mock_pool.acquire = MagicMock(
+        return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn))
+    )
     return mock_pool
 
 

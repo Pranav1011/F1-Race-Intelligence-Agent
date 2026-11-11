@@ -37,9 +37,9 @@ class SessionState:
 
     # TTLs (in seconds)
     TTL_SESSION = 86400  # 24 hours
-    TTL_HISTORY = 3600   # 1 hour
-    TTL_CONTEXT = 1800   # 30 minutes
-    TTL_CACHE = 600      # 10 minutes
+    TTL_HISTORY = 3600  # 1 hour
+    TTL_CONTEXT = 1800  # 30 minutes
+    TTL_CACHE = 600  # 10 minutes
 
     def __init__(
         self,
@@ -255,9 +255,7 @@ class SessionState:
         await self._client.expire(key, self.TTL_HISTORY)
 
         # Update session message count
-        await self.update_session(session_id, {
-            "message_count": await self._client.llen(key)
-        })
+        await self.update_session(session_id, {"message_count": await self._client.llen(key)})
 
     async def get_history(
         self,

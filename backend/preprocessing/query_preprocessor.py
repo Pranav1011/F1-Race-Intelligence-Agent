@@ -132,12 +132,14 @@ class QueryPreprocessor:
             # Only typo fixes count as corrections; resolving an exact name
             # or alias ("Verstappen" -> "Max Verstappen") is not one.
             if entity.confidence < 1.0:
-                corrections.append({
-                    "original": entity.original,
-                    "corrected": entity.matched,
-                    "type": entity.entity_type,
-                    "confidence": entity.confidence,
-                })
+                corrections.append(
+                    {
+                        "original": entity.original,
+                        "corrected": entity.matched,
+                        "type": entity.entity_type,
+                        "confidence": entity.confidence,
+                    }
+                )
 
         # Step 2: Expand query (normalize names, infer context)
         previous_year = self._session_years.get(session_id) if session_id else None
@@ -214,11 +216,13 @@ class QueryPreprocessor:
             if entity.confidence < 1.0:
                 # Replace with matched (corrected) form
                 result = result.replace(entity.original, entity.matched)
-                corrections.append({
-                    "original": entity.original,
-                    "corrected": entity.matched,
-                    "type": entity.entity_type,
-                })
+                corrections.append(
+                    {
+                        "original": entity.original,
+                        "corrected": entity.matched,
+                        "type": entity.entity_type,
+                    }
+                )
 
         return result, corrections
 

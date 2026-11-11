@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     # Initialize Sentry for error monitoring
     try:
         from observability.sentry_integration import init_sentry
+
         environment = os.getenv("ENVIRONMENT", "development")
         sentry_enabled = init_sentry(
             environment=environment,
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
     # Initialize Langfuse for LLM tracing
     try:
         from observability.langfuse_tracer import get_tracer
+
         tracer = get_tracer()
         if tracer.enabled:
             logger.info("Langfuse LLM tracing initialized")
@@ -53,9 +55,9 @@ async def lifespan(app: FastAPI):
     try:
         # TimescaleDB pool
         from agent.tools.timescale_tools import init_pool as init_timescale
+
         timescale_url = os.getenv(
-            "TIMESCALE_URI",
-            "postgresql://f1:f1_password@timescaledb:5432/f1_telemetry"
+            "TIMESCALE_URI", "postgresql://f1:f1_password@timescaledb:5432/f1_telemetry"
         )
         await init_timescale(timescale_url)
         logger.info("TimescaleDB pool initialized")
@@ -65,6 +67,7 @@ async def lifespan(app: FastAPI):
     try:
         # Neo4j driver
         from agent.tools.neo4j_tools import init_driver as init_neo4j
+
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
         neo4j_user = os.getenv("NEO4J_USER", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "f1_password")
@@ -76,6 +79,7 @@ async def lifespan(app: FastAPI):
     try:
         # RAG service (Qdrant + embeddings)
         from agent.tools.vector_tools import init_rag
+
         qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
         qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
         await init_rag(qdrant_host, qdrant_port)
@@ -86,6 +90,7 @@ async def lifespan(app: FastAPI):
     try:
         # Redis cache
         from db.cache import init_redis
+
         redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
         await init_redis(redis_url)
         logger.info("Redis cache initialized")
@@ -102,6 +107,7 @@ async def lifespan(app: FastAPI):
     # Shutdown Langfuse
     try:
         from observability.langfuse_tracer import get_tracer
+
         tracer = get_tracer()
         tracer.shutdown()
     except Exception:
@@ -109,18 +115,21 @@ async def lifespan(app: FastAPI):
 
     try:
         from agent.tools.timescale_tools import close_pool as close_timescale
+
         await close_timescale()
     except Exception:
         pass
 
     try:
         from agent.tools.neo4j_tools import close_driver as close_neo4j
+
         await close_neo4j()
     except Exception:
         pass
 
     try:
         from db.cache import close_redis
+
         await close_redis()
     except Exception:
         pass

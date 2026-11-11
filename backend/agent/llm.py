@@ -92,8 +92,7 @@ class ModelNotPulledError(RuntimeError):
 
     def __init__(self, model: str):
         super().__init__(
-            f"model {model} is not pulled; run `ollama pull {model}` "
-            "or set OLLAMA_MODEL"
+            f"model {model} is not pulled; run `ollama pull {model}` or set OLLAMA_MODEL"
         )
         self.model = model
 
@@ -147,7 +146,9 @@ class LLMRouter:
         """Initialize the LLM router."""
         self.config = config or LLMConfig()
         self._providers: dict[LLMProvider, BaseChatModel | None] = {}
-        self._fast_providers: dict[LLMProvider, BaseChatModel | None] = {}  # Fast models for planning
+        self._fast_providers: dict[
+            LLMProvider, BaseChatModel | None
+        ] = {}  # Fast models for planning
         self._initialize_providers()
         self._current_provider: LLMProvider | None = None
 

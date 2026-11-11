@@ -28,24 +28,118 @@ MIN_FUZZY_SIMILARITY = 0.85
 # Ordinary English and racing words that are never entity mentions, even when
 # they collide with a short alias ("at" is an AlphaTauri alias, "am" an Aston
 # Martin one) or sit one edit away from a driver code or name.
-STOPWORDS = frozenset({
-    "a", "about", "after", "against", "all", "am", "an", "and", "any", "are",
-    "as", "at", "be", "before", "best", "between", "by", "can", "car", "cars",
-    "compare", "did", "do", "does", "during", "each", "fast", "fastest",
-    "for", "from", "gap", "get", "give", "had", "has", "have", "how", "i",
-    "if", "in", "into", "is", "it", "its", "lap", "laps", "last", "me", "most",
-    "my", "of", "on", "or", "out", "over", "pace", "pit", "pits", "race",
-    "races", "s", "show", "slow", "so", "stint", "stop", "stops", "than",
-    "that", "the", "their", "them", "then", "there", "they", "this", "time",
-    "times", "to", "top", "tyre", "tyres", "tire", "tires", "up", "us", "vs",
-    "was", "were", "what", "when", "where", "which", "who", "why", "will",
-    "win", "with", "won", "would", "year", "you",
-})
+STOPWORDS = frozenset(
+    {
+        "a",
+        "about",
+        "after",
+        "against",
+        "all",
+        "am",
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "before",
+        "best",
+        "between",
+        "by",
+        "can",
+        "car",
+        "cars",
+        "compare",
+        "did",
+        "do",
+        "does",
+        "during",
+        "each",
+        "fast",
+        "fastest",
+        "for",
+        "from",
+        "gap",
+        "get",
+        "give",
+        "had",
+        "has",
+        "have",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "lap",
+        "laps",
+        "last",
+        "me",
+        "most",
+        "my",
+        "of",
+        "on",
+        "or",
+        "out",
+        "over",
+        "pace",
+        "pit",
+        "pits",
+        "race",
+        "races",
+        "s",
+        "show",
+        "slow",
+        "so",
+        "stint",
+        "stop",
+        "stops",
+        "than",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "they",
+        "this",
+        "time",
+        "times",
+        "to",
+        "top",
+        "tyre",
+        "tyres",
+        "tire",
+        "tires",
+        "up",
+        "us",
+        "vs",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "win",
+        "with",
+        "won",
+        "would",
+        "year",
+        "you",
+    }
+)
 
 
 @dataclass
 class MatchResult:
     """Result of a fuzzy match."""
+
     original: str
     matched: str
     canonical: str  # Standardized form (e.g., driver code)
@@ -243,9 +337,7 @@ class FuzzyMatcher:
                     )
 
         # Fuzzy match
-        best_match, confidence = self._fuzzy_lookup(
-            text_lower, self.driver_index, max_distance
-        )
+        best_match, confidence = self._fuzzy_lookup(text_lower, self.driver_index, max_distance)
 
         if best_match:
             return MatchResult(
@@ -283,9 +375,7 @@ class FuzzyMatcher:
             )
 
         # Fuzzy match
-        best_match, confidence = self._fuzzy_lookup(
-            text_lower, self.team_index, max_distance
-        )
+        best_match, confidence = self._fuzzy_lookup(text_lower, self.team_index, max_distance)
 
         if best_match:
             return MatchResult(
@@ -323,9 +413,7 @@ class FuzzyMatcher:
             )
 
         # Fuzzy match
-        best_match, confidence = self._fuzzy_lookup(
-            text_lower, self.circuit_index, max_distance
-        )
+        best_match, confidence = self._fuzzy_lookup(text_lower, self.circuit_index, max_distance)
 
         if best_match:
             return MatchResult(
@@ -383,10 +471,10 @@ class FuzzyMatcher:
         results = []
 
         # Split text into words and try to match each
-        words = re.findall(r'\b[\w-]+\b', text)
+        words = re.findall(r"\b[\w-]+\b", text)
 
         # Also try consecutive word pairs (for names like "Max Verstappen")
-        word_pairs = [f"{words[i]} {words[i+1]}" for i in range(len(words) - 1)]
+        word_pairs = [f"{words[i]} {words[i + 1]}" for i in range(len(words) - 1)]
 
         # Try pairs first (longer matches)
         matched_indices = set()

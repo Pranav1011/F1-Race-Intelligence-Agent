@@ -38,18 +38,21 @@ ALL_FAILED = {
     "reports": [{"error": "Connection refused"}],
 }
 
-NO_LAPS = [{
-    "error": "No lap time data found for the specified criteria",
-    "code": "NO_TELEMETRY_DATA",
-}]
-NO_PITS = [{
-    "error": "No pit stop data found for the specified criteria",
-    "code": "NO_PIT_STOP_DATA",
-}]
+NO_LAPS = [
+    {
+        "error": "No lap time data found for the specified criteria",
+        "code": "NO_TELEMETRY_DATA",
+    }
+]
+NO_PITS = [
+    {
+        "error": "No pit stop data found for the specified criteria",
+        "code": "NO_PIT_STOP_DATA",
+    }
+]
 
 VER_LAPS = [
-    {"lap_number": n, "lap_time_seconds": 82.0 + n / 10, "compound": "HARD"}
-    for n in range(1, 61)
+    {"lap_number": n, "lap_time_seconds": 82.0 + n / 10, "compound": "HARD"} for n in range(1, 61)
 ]
 
 
@@ -235,7 +238,9 @@ async def test_only_the_unreachable_source_is_named_as_failed(make_agent):
 
 
 CONNECTION_REFUSED = {
-    "laps_VER": [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}],
+    "laps_VER": [
+        {"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}
+    ],
     "stints": {"error": "[Errno 61] Connection refused"},
     "reports": [{"error": "Connection refused"}],
 }
@@ -254,11 +259,18 @@ async def test_unreachable_services_stop_without_any_re_plan(make_agent):
 
 async def test_services_that_never_connected_stop_without_a_re_plan(make_agent):
     # The live failure: the fallback plan's tools report uninitialized services
-    nodes = FakeNodes({
-        "laps_VER": [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}],
-        "stints": [{"error": "Database connection not initialized"}],
-        "reports": [{"error": "RAG service not initialized"}],
-    })
+    nodes = FakeNodes(
+        {
+            "laps_VER": [
+                {
+                    "error": "Database connection not initialized",
+                    "code": "DATABASE_CONNECTION_ERROR",
+                }
+            ],
+            "stints": [{"error": "Database connection not initialized"}],
+            "reports": [{"error": "RAG service not initialized"}],
+        }
+    )
     agent = make_agent(nodes)
 
     response = await agent.chat("Compare Verstappen and Norris at Monza 2024", session_id="s1")
@@ -289,8 +301,17 @@ async def test_a_mix_of_dead_and_empty_sources_still_gets_one_re_plan(make_agent
 @pytest.mark.parametrize(
     ("result", "unreachable"),
     [
-        ([{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}], True),
-        ({"error": "[Errno 61] Connect call failed ('127.0.0.1', 5432)", "code": "DATABASE_QUERY_ERROR"}, True),
+        (
+            [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}],
+            True,
+        ),
+        (
+            {
+                "error": "[Errno 61] Connect call failed ('127.0.0.1', 5432)",
+                "code": "DATABASE_QUERY_ERROR",
+            },
+            True,
+        ),
         ([{"error": "[Errno 8] nodename nor servname provided, or not known"}], True),
         # What the fallback plan's tools return when the services never connected
         ([{"error": "Database connection not initialized"}], True),
@@ -358,7 +379,10 @@ def test_is_usable_result(result, usable):
     ("result", "failed"),
     [
         ([{"error": REFUSED, "code": "DATABASE_QUERY_ERROR"}], True),
-        ({"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}, True),
+        (
+            {"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"},
+            True,
+        ),
         ({"error": "RAG service not initialized"}, True),
         ([{"error": "Connection refused"}], True),
         (NO_LAPS, False),
@@ -385,7 +409,9 @@ class Ollama404:
 
 async def test_missing_ollama_model_says_how_to_fix_it(caplog):
     router = LLMRouter(LLMConfig(ollama_model="llama-missing:1b"))
-    router._providers[LLMProvider.OLLAMA] = Ollama404('{"error":"model \'llama-missing:1b\' not found"}')
+    router._providers[LLMProvider.OLLAMA] = Ollama404(
+        '{"error":"model \'llama-missing:1b\' not found"}'
+    )
 
     with pytest.raises(ModelNotPulledError) as raised:
         await router.ainvoke([])

@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Observability imports (optional - graceful degradation)
 try:
     from observability.sentry_integration import add_breadcrumb
+
     SENTRY_AVAILABLE = True
 except ImportError:
     SENTRY_AVAILABLE = False
@@ -27,19 +28,17 @@ MAX_NO_DATA_RETRIES = 1
 # Some query types need more complete data than others
 THRESHOLD_BY_QUERY_TYPE = {
     # High precision required - need accurate data
-    AnalysisType.TELEMETRY: 0.8,      # Telemetry analysis needs precise data
-    AnalysisType.COMPARISON: 0.75,    # Comparisons need data for all drivers
-    AnalysisType.STRATEGY: 0.7,       # Strategy analysis needs stint data
-
+    AnalysisType.TELEMETRY: 0.8,  # Telemetry analysis needs precise data
+    AnalysisType.COMPARISON: 0.75,  # Comparisons need data for all drivers
+    AnalysisType.STRATEGY: 0.7,  # Strategy analysis needs stint data
     # Medium precision - can work with partial data
-    AnalysisType.PACE: 0.65,          # Pace analysis can interpolate
-    AnalysisType.INCIDENT: 0.6,       # Incidents often have limited data
-
+    AnalysisType.PACE: 0.65,  # Pace analysis can interpolate
+    AnalysisType.INCIDENT: 0.6,  # Incidents often have limited data
     # Lower precision acceptable - more contextual
-    AnalysisType.HISTORICAL: 0.5,     # Historical can use RAG context
-    AnalysisType.PREDICTION: 0.5,     # Predictions are inherently uncertain
-    AnalysisType.WHAT_IF: 0.5,        # What-if is speculative
-    AnalysisType.GENERAL: 0.5,        # General queries are flexible
+    AnalysisType.HISTORICAL: 0.5,  # Historical can use RAG context
+    AnalysisType.PREDICTION: 0.5,  # Predictions are inherently uncertain
+    AnalysisType.WHAT_IF: 0.5,  # What-if is speculative
+    AnalysisType.GENERAL: 0.5,  # General queries are flexible
 }
 
 # Default threshold if query type not found
@@ -59,14 +58,16 @@ def get_threshold_for_query_type(query_type: AnalysisType) -> float:
 # Error codes that mean the data service itself failed. Any other code (such
 # as NO_TELEMETRY_DATA or SESSION_NOT_FOUND) means the query reached the
 # service and it had nothing matching.
-SERVICE_FAILURE_CODES = frozenset({
-    "DATABASE_CONNECTION_ERROR",
-    "DATABASE_QUERY_ERROR",
-    "DATABASE_TIMEOUT",
-    "RATE_LIMITED",
-    "PROVIDER_UNAVAILABLE",
-    "UNKNOWN_ERROR",
-})
+SERVICE_FAILURE_CODES = frozenset(
+    {
+        "DATABASE_CONNECTION_ERROR",
+        "DATABASE_QUERY_ERROR",
+        "DATABASE_TIMEOUT",
+        "RATE_LIMITED",
+        "PROVIDER_UNAVAILABLE",
+        "UNKNOWN_ERROR",
+    }
+)
 
 # Uncoded errors such as "No race data found for 2031" or "Circuit X not found"
 NOT_FOUND_MESSAGE = re.compile(r"\bno\b.*\bfound\b|\bnot found\b", re.IGNORECASE)
@@ -196,9 +197,7 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
     # service, otherwise after MAX_NO_DATA_RETRIES re-plans.
     unreachable = not has_data and all_failures_are_unreachable(raw_data)
     stop_retrying = (
-        out_of_retries
-        or unreachable
-        or (not has_data and iteration >= MAX_NO_DATA_RETRIES)
+        out_of_retries or unreachable or (not has_data and iteration >= MAX_NO_DATA_RETRIES)
     )
 
     # A retry whose tools all failed must not throw away an earlier attempt's
@@ -215,7 +214,9 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
         restored = dict(last_usable)
         processed = ProcessedAnalysis(**last_usable["processed_analysis"])
         has_data = True
-        logger.info("Evaluation: last retry returned no usable data, using an earlier attempt's data")
+        logger.info(
+            "Evaluation: last retry returned no usable data, using an earlier attempt's data"
+        )
 
     if has_data:
         data_outcome = DATA_OK
@@ -225,9 +226,7 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
         data_outcome = DATA_RETRY
 
     # Check if we should continue or loop
-    is_sufficient = has_data and (
-        processed.completeness_score >= threshold or stop_retrying
-    )
+    is_sufficient = has_data and (processed.completeness_score >= threshold or stop_retrying)
     will_loop = not is_sufficient and not stop_retrying
 
     # Generate feedback if insufficient
@@ -235,10 +234,7 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
     if will_loop:
         feedback = _generate_feedback(processed, iteration)
         if not has_data:
-            feedback = (
-                f"None of the {len(raw_data)} tool calls returned usable data. "
-                + feedback
-            )
+            feedback = f"None of the {len(raw_data)} tool calls returned usable data. " + feedback
         logger.info(
             f"Evaluation: insufficient (score={processed.completeness_score:.2f}, "
             f"threshold={threshold:.2f} for {query_type.value}, "
@@ -339,9 +335,7 @@ def _generate_feedback(processed: ProcessedAnalysis, iteration: int) -> str:
 
     # Check if stint data is missing
     if not processed.stint_summaries:
-        feedback_parts.append(
-            "No stint/tire data available. Consider fetching stint summaries."
-        )
+        feedback_parts.append("No stint/tire data available. Consider fetching stint summaries.")
 
     # Default feedback if nothing specific
     if not feedback_parts:

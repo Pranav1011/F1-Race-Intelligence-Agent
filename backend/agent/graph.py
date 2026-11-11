@@ -136,7 +136,7 @@ def create_enhanced_agent_graph(
         "evaluate",
         should_continue,
         {
-            "plan": "plan",      # Loop back for more data
+            "plan": "plan",  # Loop back for more data
             "generate": "enrich",  # Continue to enrich with RAG context
             "no_data": "no_data",  # Say what failed instead of answering
         },
@@ -357,6 +357,7 @@ class F1Agent:
         if self._user_memory is None and self.enable_memory:
             try:
                 from memory.user_memory import UserMemory
+
                 self._user_memory = UserMemory(
                     qdrant_host=self.qdrant_host,
                     qdrant_port=self.qdrant_port,
@@ -375,6 +376,7 @@ class F1Agent:
         if self._session_state is None and self.enable_memory:
             try:
                 from memory.session_state import SessionState
+
                 self._session_state = SessionState(
                     redis_host=self.redis_host,
                     redis_port=self.redis_port,
@@ -423,7 +425,7 @@ class F1Agent:
         message: str,
         session_id: str,
         user_id: str | None = None,
-        status_callback = None,
+        status_callback=None,
         preprocessed: dict | None = None,
     ) -> dict[str, Any]:
         """
@@ -474,6 +476,7 @@ class F1Agent:
         preprocessed: dict | None,
     ) -> dict[str, Any]:
         """Run one turn of the graph. Callers must hold the session lock."""
+
         # Helper to send status if callback is provided
         async def send_status(stage: str, message: str):
             if status_callback:
@@ -481,6 +484,7 @@ class F1Agent:
                     await status_callback(stage, message)
                 except Exception as e:
                     logger.debug(f"Status callback error: {e}")
+
         logger.info(f"Processing message in session {session_id}")
 
         # Load memory context
@@ -522,13 +526,16 @@ class F1Agent:
         # Add preprocessed query hints if available
         if preprocessed:
             state["preprocessed_query"] = preprocessed
-            logger.debug(f"Using preprocessed hints: intent={preprocessed.get('intent')}, "
-                        f"drivers={preprocessed.get('drivers')}")
+            logger.debug(
+                f"Using preprocessed hints: intent={preprocessed.get('intent')}, "
+                f"drivers={preprocessed.get('drivers')}"
+            )
 
         # Get Langfuse callback handler for tracing
         langfuse_handler = None
         try:
             from observability.langfuse_tracer import get_langfuse_handler
+
             langfuse_handler = get_langfuse_handler(
                 session_id=session_id,
                 user_id=user_id,
@@ -567,15 +574,19 @@ class F1Agent:
             all_down = await self.data_preflight.all_unreachable()
             if all_down:
                 answer = unreachable_data_answer(all_down)
-                logger.warning(f"Preflight: no data service reachable, not running the agent: {answer}")
+                logger.warning(
+                    f"Preflight: no data service reachable, not running the agent: {answer}"
+                )
                 last_node = "no_data"
-                result.update({
-                    "analysis_result": answer,
-                    "visualization_spec": None,
-                    "response_type": "TEXT",
-                    "error": answer,
-                    "data_outcome": "no_data",
-                })
+                result.update(
+                    {
+                        "analysis_result": answer,
+                        "visualization_spec": None,
+                        "response_type": "TEXT",
+                        "error": answer,
+                        "data_outcome": "no_data",
+                    }
+                )
                 stage, msg = node_status_messages["no_data"]
                 await send_status(stage, msg)
             else:
@@ -628,11 +639,14 @@ class F1Agent:
                             session_id, "assistant", analysis_result[:500]
                         )
                         # Update context with current entities
-                        await session_state.update_context(session_id, {
-                            "last_query_type": understanding.get("query_type"),
-                            "drivers": understanding.get("drivers", []),
-                            "races": understanding.get("races", []),
-                        })
+                        await session_state.update_context(
+                            session_id,
+                            {
+                                "last_query_type": understanding.get("query_type"),
+                                "drivers": understanding.get("drivers", []),
+                                "races": understanding.get("races", []),
+                            },
+                        )
                 except Exception as e:
                     logger.warning(f"Error updating session state: {e}")
 

@@ -40,15 +40,11 @@ class ScriptedGraph:
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         self.active_by_session[session_id] = self.active_by_session.get(session_id, 0) + 1
-        self.max_same_session = max(
-            self.max_same_session, self.active_by_session[session_id]
-        )
+        self.max_same_session = max(self.max_same_session, self.active_by_session[session_id])
         try:
             if self.delay:
                 await asyncio.sleep(self.delay)
-            updates = self.turns.pop(0) if self.turns else [
-                {"generate": {"analysis_result": "ok"}}
-            ]
+            updates = self.turns.pop(0) if self.turns else [{"generate": {"analysis_result": "ok"}}]
             for update in updates:
                 if isinstance(update, Exception):
                     raise update
@@ -241,10 +237,14 @@ async def test_session_cleared_mid_turn_is_not_restored():
 
 
 async def test_graph_failure_names_the_failing_step():
-    graph = ScriptedGraph(turns=[[
-        {"understand": {"query_understanding": {}}},
-        RuntimeError("connection refused"),
-    ]])
+    graph = ScriptedGraph(
+        turns=[
+            [
+                {"understand": {"query_understanding": {}}},
+                RuntimeError("connection refused"),
+            ]
+        ]
+    )
     agent = make_agent(graph)
 
     response = await agent.chat("q", session_id="s1")

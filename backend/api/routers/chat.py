@@ -15,7 +15,12 @@ from pydantic import BaseModel
 
 from agent import F1Agent, get_agent
 from agent.llm import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
-from preprocessing import QueryPreprocessor, PreprocessedQuery, QueryHistoryManager, get_history_manager
+from preprocessing import (
+    QueryPreprocessor,
+    PreprocessedQuery,
+    QueryHistoryManager,
+    get_history_manager,
+)
 from api.streaming import ClientDisconnectedError, StreamingContext, StreamStage, get_status_message
 
 router = APIRouter()
@@ -211,10 +216,12 @@ async def websocket_chat(websocket: WebSocket):
             ctx = StreamingContext(websocket.send_json)
 
             # Send session ID back
-            await ctx.send({
-                "type": "session",
-                "session_id": session_id,
-            })
+            await ctx.send(
+                {
+                    "type": "session",
+                    "session_id": session_id,
+                }
+            )
 
             try:
                 # Step 1: Preprocess the query
@@ -265,13 +272,15 @@ async def websocket_chat(websocket: WebSocket):
                     await ctx.status(stage_enum, message)
 
                 # Pass preprocessed hints to agent; stop it if the client leaves
-                agent_task = asyncio.create_task(agent.chat(
-                    message=content,
-                    session_id=session_id,
-                    user_id=user_id,
-                    status_callback=status_callback,
-                    preprocessed=preprocessed.to_dict(),
-                ))
+                agent_task = asyncio.create_task(
+                    agent.chat(
+                        message=content,
+                        session_id=session_id,
+                        user_id=user_id,
+                        status_callback=status_callback,
+                        preprocessed=preprocessed.to_dict(),
+                    )
+                )
                 result, pending = await _await_answer_or_disconnect(websocket, agent_task)
 
                 # Send query metadata
@@ -333,6 +342,7 @@ async def clear_session(session_id: str):
 
 class SuggestionResponse(BaseModel):
     """Query suggestion response."""
+
     text: str
     type: str
     confidence: float = 1.0

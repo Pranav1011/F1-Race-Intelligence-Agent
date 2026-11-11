@@ -30,7 +30,9 @@ def test_default_model_is_the_tested_one():
 
 def test_setup_compose_and_env_example_use_the_same_model():
     pulled = re.findall(r"ollama pull (\S+)", _repo_file("Makefile"))
-    compose = re.search(r"OLLAMA_MODEL: \$\{OLLAMA_MODEL:-([^}]+)\}", _repo_file("docker-compose.yml"))
+    compose = re.search(
+        r"OLLAMA_MODEL: \$\{OLLAMA_MODEL:-([^}]+)\}", _repo_file("docker-compose.yml")
+    )
     env_example = re.search(r"^OLLAMA_MODEL=(\S+)$", _repo_file(".env.example"), re.MULTILINE)
 
     assert pulled == [DEFAULT_OLLAMA_MODEL]

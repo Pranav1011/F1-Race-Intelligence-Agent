@@ -35,9 +35,7 @@ class DataService:
 
 def configured_services() -> list[DataService]:
     """The data backends, from the same settings and defaults as api/main.py."""
-    timescale = urlparse(
-        os.getenv("TIMESCALE_URI", "postgresql://timescaledb:5432/f1_telemetry")
-    )
+    timescale = urlparse(os.getenv("TIMESCALE_URI", "postgresql://timescaledb:5432/f1_telemetry"))
     neo4j = urlparse(os.getenv("NEO4J_URI", "bolt://neo4j:7687"))
     return [
         DataService(
@@ -84,7 +82,9 @@ class DataServicePreflight:
             if self._checked_at is None or now - self._checked_at >= self.ttl_s:
                 services = configured_services()
                 reachable = await asyncio.gather(*(probe_service(s) for s in services))
-                self._unreachable = [s.label for s, ok in zip(services, reachable, strict=True) if not ok]
+                self._unreachable = [
+                    s.label for s, ok in zip(services, reachable, strict=True) if not ok
+                ]
                 self._checked_at = now
                 if self._unreachable:
                     logger.info(f"Preflight: unreachable data services: {self._unreachable}")

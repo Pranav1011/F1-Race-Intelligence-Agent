@@ -73,7 +73,9 @@ async def test_disconnect_mid_answer_cancels_the_agent_without_a_traceback(monke
     assert not any(m.get("type") in ("done", "error") for m in websocket.sent)
     messages = [r.getMessage() for r in caplog.records if r.name == "api.routers.chat"]
     assert "WebSocket client disconnected; stopped any answer in progress" in messages
-    assert not any(r.levelno >= logging.ERROR for r in caplog.records if r.name == "api.routers.chat")
+    assert not any(
+        r.levelno >= logging.ERROR for r in caplog.records if r.name == "api.routers.chat"
+    )
 
 
 async def test_send_on_a_closed_socket_raises_client_disconnected_once():

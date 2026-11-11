@@ -47,7 +47,9 @@ class EnhancedAgentState(TypedDict):
     last_usable_data: dict  # raw_data and processed_analysis of the last attempt with data
 
     # ENRICH node output (RAG context)
-    enriched_context: dict  # Contains race_context, community_insights, regulations, similar_analyses
+    enriched_context: (
+        dict  # Contains race_context, community_insights, regulations, similar_analyses
+    )
 
     # GENERATE node output
     analysis_result: str  # Final text response
