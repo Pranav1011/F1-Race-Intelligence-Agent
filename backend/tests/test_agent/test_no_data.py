@@ -252,6 +252,21 @@ async def test_unreachable_services_stop_without_any_re_plan(make_agent):
     assert response["message"].startswith("I couldn't reach the race data")
 
 
+async def test_services_that_never_connected_stop_without_a_re_plan(make_agent):
+    # The live failure: the fallback plan's tools report uninitialized services
+    nodes = FakeNodes({
+        "laps_VER": [{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}],
+        "stints": [{"error": "Database connection not initialized"}],
+        "reports": [{"error": "RAG service not initialized"}],
+    })
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Compare Verstappen and Norris at Monza 2024", session_id="s1")
+
+    assert nodes.plan_calls == 1
+    assert response["message"].startswith("I couldn't reach the race data")
+
+
 async def test_nothing_found_re_plans_at_most_once(make_agent):
     nodes = FakeNodes({"laps_VER": NO_LAPS, "stints": {"rows": []}, "reports": []})
     agent = make_agent(nodes)
@@ -277,6 +292,9 @@ async def test_a_mix_of_dead_and_empty_sources_still_gets_one_re_plan(make_agent
         ([{"error": "Database connection not initialized", "code": "DATABASE_CONNECTION_ERROR"}], True),
         ({"error": "[Errno 61] Connect call failed ('127.0.0.1', 5432)", "code": "DATABASE_QUERY_ERROR"}, True),
         ([{"error": "[Errno 8] nodename nor servname provided, or not known"}], True),
+        # What the fallback plan's tools return when the services never connected
+        ([{"error": "Database connection not initialized"}], True),
+        ([{"error": "RAG service not initialized"}], True),
         ([{"error": "syntax error at or near SELECT", "code": "DATABASE_QUERY_ERROR"}], False),
         (NO_LAPS, False),
         ([], False),

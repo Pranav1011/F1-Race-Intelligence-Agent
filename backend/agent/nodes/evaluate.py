@@ -78,7 +78,10 @@ CONNECTION_FAILURE_MESSAGE = re.compile(
     r"connection refused|connect call failed|could not connect|cannot connect"
     r"|failed to connect|failed to establish|connection (?:reset|timed out|error)"
     r"|nodename nor servname|name or service not known|name resolution"
-    r"|\[errno (?:8|61|111)\]|unreachable",
+    r"|\[errno (?:8|61|111)\]|unreachable"
+    # A pool or client that never connected at startup: "Database connection
+    # not initialized", "RAG service not initialized"
+    r"|(?:connection|service|driver|client|pool) not initialized",
     re.IGNORECASE,
 )
 
