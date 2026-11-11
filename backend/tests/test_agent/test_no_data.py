@@ -154,6 +154,32 @@ async def test_zero_data_blames_the_unreachable_llm_not_the_data(make_agent):
     assert "The data lookups also failed:" in response["error"]
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "All LLM providers failed",
+        "Agent error: All LLM providers failed",
+        "plan failed: All LLM providers failed (after 3 attempts)",
+    ],
+)
+def test_llm_unavailable_matches_wrapped_messages(message):
+    assert LLMUnavailableError.matches(message)
+
+
+@pytest.mark.parametrize("message", [None, "", "2 validation errors for QueryUnderstanding"])
+def test_llm_unavailable_ignores_other_errors(message):
+    assert not LLMUnavailableError.matches(message)
+
+
+async def test_zero_data_blames_the_llm_for_a_wrapped_error_too(make_agent):
+    nodes = FakeNodes(ALL_FAILED, understand_error=f"Agent error: {LLMUnavailableError()}")
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Who won Monza 2024?", session_id="s1")
+
+    assert response["error"].startswith("I couldn't reach a language model")
+
+
 async def test_zero_data_leaves_out_unrelated_earlier_errors(make_agent):
     nodes = FakeNodes(ALL_FAILED, understand_error="2 validation errors for QueryUnderstanding")
     agent = make_agent(nodes)

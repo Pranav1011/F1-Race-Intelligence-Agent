@@ -65,3 +65,10 @@ def test_local_model_client_is_a_declared_dependency():
     dockerfile = Path(__file__).resolve().parents[2] / "Dockerfile"
     if dockerfile.exists():
         assert "langchain-ollama" in dockerfile.read_text()
+
+
+def test_container_image_points_at_the_compose_ollama_service():
+    dockerfile = Path(__file__).resolve().parents[2] / "Dockerfile"
+    if not dockerfile.exists():
+        pytest.skip("Dockerfile is not available")
+    assert "ENV OLLAMA_BASE_URL=http://ollama:11434" in dockerfile.read_text()

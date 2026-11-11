@@ -36,6 +36,10 @@ RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Expose port
+# Inside a container the Ollama service is reached by its compose name; outside
+# Docker the code defaults to http://localhost:11434. Override per deployment.
+ENV OLLAMA_BASE_URL=http://ollama:11434
+
 EXPOSE 8000
 
 # Health check

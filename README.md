@@ -123,17 +123,18 @@ uv venv && uv pip install -e ".[dev]"
 .venv/bin/uvicorn api.main:app --port 8000      # first start ~1 min: loads the embedding model
 
 cd ../frontend                                    # in a second terminal
-npm ci && npm run dev                             # http://localhost:3000
+pnpm install --frozen-lockfile && pnpm dev        # http://localhost:3000
 ```
 
 ### Tests
 
 ```bash
 cd backend && .venv/bin/pytest          # or `make test` inside the running stack
-cd frontend && npm run type-check
+cd frontend && pnpm type-check
 ```
 
-The backend suite has 136 passing tests. `tests/test_api/test_health.py::test_health_check`
+The frontend uses pnpm, like the Makefile, Dockerfile and CI; `package-lock.json` is kept in
+sync for `npm ci` users. The backend suite has 155 passing tests. `tests/test_api/test_health.py::test_health_check`
 needs the Docker databases and fails without them.
 
 ## Design decisions and limitations
@@ -145,8 +146,10 @@ needs the Docker databases and fails without them.
 - **Entity matching favours precision.** Fuzzy matches need 4+ characters and 0.85
   similarity, and a stopword list blocks words such as "at" (an AlphaTauri alias) or "pit".
   Some real typos ("perz") are therefore left for the model to interpret.
-- **A question with no year means 2024**, the last season the pipeline ingests, not the
-  calendar year.
+- **Years are read against the data, and the UI says so.** A follow-up with no year keeps the
+  chat's previous year; otherwise no year means 2024, the last ingested season, and "this
+  season" / "last season" count back from 2024, not the calendar year. The "Understood as"
+  card shows any year the user didn't type. The remembered year lives in the API process.
 - **One answer at a time.** The UI streams one answer across all chats; other chats show
   why sending is paused and keep the draft editable.
 - **Local model quality.** llama3.1:8b sometimes returns a plan that isn't valid JSON; the

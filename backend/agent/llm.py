@@ -113,8 +113,9 @@ class LLMUnavailableError(RuntimeError):
 
     @classmethod
     def matches(cls, message: str | None) -> bool:
-        """True when an error message kept in agent state came from this error."""
-        return message == cls.MESSAGE
+        """True when an error message kept in agent state came from this error,
+        including wrapped forms such as "Agent error: All LLM providers failed"."""
+        return bool(message) and cls.MESSAGE in message
 
 
 # Ollama's reply for a model that is not pulled, e.g. "model 'x:8b' not found".
