@@ -18,8 +18,8 @@ writes the answer. When the data isn't there it says so instead of guessing.
   results, head-to-heads and what-if pit timing, for the seasons the ingestion pipeline
   covers (2018-2024 via FastF1).
 - **Typo-tolerant entity resolution.** "verstapen at silverston" resolves to Max Verstappen
-  at Silverstone before the agent runs, and the UI shows what it understood. Ordinary words
-  are never turned into names ("pit" is not Piastri); this is pinned by tests.
+  at Silverstone before the agent runs, and the UI shows what it understood. Common words
+  are not turned into names ("pit" is not Piastri); tests pin this for the example prompts.
 - **No data, no answer.** If every data tool fails or comes back empty, the agent skips the
   generate step and replies with what failed (an unreachable database, an empty result, or
   an unreachable language model) instead of inventing numbers.
@@ -120,7 +120,7 @@ ollama pull llama3.1:8b && ollama serve          # the backend defaults to local
 
 cd backend
 uv venv && uv pip install -e ".[dev]"
-.venv/bin/uvicorn api.main:app --port 8000
+.venv/bin/uvicorn api.main:app --port 8000      # first start ~1 min: loads the embedding model
 
 cd ../frontend                                    # in a second terminal
 npm ci && npm run dev                             # http://localhost:3000
