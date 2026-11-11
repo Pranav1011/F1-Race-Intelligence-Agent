@@ -4,12 +4,12 @@ import { useEffect, useCallback, useState } from 'react'
 import { useChatStore } from '@/stores/chat-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useBackendHealth } from '@/hooks/useBackendHealth'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ArtifactPanel } from '@/components/layout/ArtifactPanel'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { API_ENDPOINTS } from '@/utils/api'
-import { QueryInterpretation as QueryInterpretationType } from '@/types'
 
 const DISCONNECTED_MESSAGE =
   'Lost the connection to the backend before the answer finished. Check that the API is running, then send your question again.'
@@ -25,6 +25,10 @@ export default function Home() {
     updateStreamMessage,
     recordStreamError,
     finishStream,
+    interpretations,
+    setStreamInterpretation,
+    dismissInterpretation,
+    setConnection,
     loadFromStorage,
   } = useChatStore()
 
@@ -35,14 +39,12 @@ export default function Home() {
   const [statusDetail, setStatusDetail] = useState<string | null>(null)
   const [statusProgress, setStatusProgress] = useState<number | null>(null)
 
-  // Track query interpretation for feedback display
-  const [interpretation, setInterpretation] = useState<QueryInterpretationType | null>(null)
-  const [showInterpretation, setShowInterpretation] = useState(false)
-
   // Load sessions from localStorage on mount
   useEffect(() => {
     loadFromStorage()
   }, [loadFromStorage])
+
+  useBackendHealth(API_ENDPOINTS.health, setConnection)
 
   const clearStatus = useCallback(() => {
     setStatusMessage(null)
@@ -54,11 +56,11 @@ export default function Home() {
   const { sendMessage: wsSendMessage } = useWebSocket({
     url: API_ENDPOINTS.chatWs,
     onInterpreted: (interp) => {
-      // Show interpretation feedback if there are corrections or expansion
-      setInterpretation(interp)
-      setShowInterpretation(true)
-      // Auto-hide after 5 seconds
-      setTimeout(() => setShowInterpretation(false), 5000)
+      // Shown in the session the answer belongs to, then auto-hidden after 5 seconds
+      const target = useChatStore.getState().streamTarget
+      if (!target) return
+      setStreamInterpretation(interp)
+      setTimeout(() => dismissInterpretation(target.sessionId, interp), 5000)
     },
     onToken: (token) => {
       // Clear status message when we start receiving tokens
@@ -89,7 +91,11 @@ export default function Home() {
     onError: (error) => {
       recordStreamError(error)
     },
+    onConnect: () => {
+      setConnection('connected')
+    },
     onDisconnect: () => {
+      setConnection('disconnected')
       clearStatus()
       finishStream(DISCONNECTED_MESSAGE)
     },
@@ -103,10 +109,6 @@ export default function Home() {
       const target = startStream(content)
       if (!target) return
 
-      // Reset interpretation state
-      setInterpretation(null)
-      setShowInterpretation(false)
-
       wsSendMessage(content, target.sessionId)
     },
     [startStream, wsSendMessage]
@@ -116,6 +118,7 @@ export default function Home() {
   const isStreamingHere = isStreaming && streamTarget?.sessionId === activeSessionId
 
   const messages = getMessages()
+  const interpretation = activeSessionId ? interpretations[activeSessionId] ?? null : null
 
   return (
     <div className="flex h-screen bg-background-primary text-text-primary overflow-hidden">
@@ -138,7 +141,7 @@ export default function Home() {
               onSendMessage={handleSendMessage}
               statusMessage={isStreamingHere ? statusMessage : null}
               interpretation={interpretation}
-              showInterpretation={showInterpretation}
+              showInterpretation={interpretation !== null}
             />
           </main>
 

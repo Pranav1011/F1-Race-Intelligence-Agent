@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Message, Session, StoredData } from '@/types'
+import { Message, QueryInterpretation, Session, StoredData } from '@/types'
 
 const STORAGE_KEY = 'f1-ria-sessions'
 const STORAGE_VERSION = 1
@@ -37,12 +37,25 @@ export interface StreamTarget {
   messageId: string
 }
 
+/**
+ * Whether the backend is reachable:
+ *   unknown      -> nothing has answered or failed yet (page load)
+ *   connected    <- a chat socket opened, or a health check succeeded
+ *   disconnected <- a chat socket closed before its done frame, a message
+ *                   could not be sent, or a health check failed
+ * A socket that closes after its done frame leaves the state as it was.
+ */
+export type ConnectionStatus = 'unknown' | 'connected' | 'disconnected'
+
 interface ChatStore {
   sessions: Session[]
   activeSessionId: string | null
   streamStatus: StreamStatus
   streamTarget: StreamTarget | null
   streamError: string | null
+  // Latest query interpretation per session id; not persisted
+  interpretations: Record<string, QueryInterpretation>
+  connection: ConnectionStatus
 
   // Computed getters
   getActiveSession: () => Session | undefined
@@ -60,6 +73,9 @@ interface ChatStore {
   updateStreamMessage: (updates: Partial<Message>) => void
   recordStreamError: (error: string) => void
   finishStream: (error?: string | null) => void
+  setStreamInterpretation: (interpretation: QueryInterpretation) => void
+  dismissInterpretation: (sessionId: string, interpretation: QueryInterpretation) => void
+  setConnection: (connection: ConnectionStatus) => void
   loadFromStorage: () => void
   saveToStorage: () => void
 }
@@ -101,12 +117,20 @@ function settleMessage(message: Message, error: string | null): Message {
   return { ...rest, content: repeatsError ? '' : rest.content, error }
 }
 
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record
+  const { [key]: _removed, ...rest } = record
+  return rest
+}
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   streamStatus: 'idle',
   streamTarget: null,
   streamError: null,
+  interpretations: {},
+  connection: 'unknown',
 
   getActiveSession: () => {
     const { sessions, activeSessionId } = get()
@@ -150,6 +174,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     set((state) => {
       const newSessions = state.sessions.filter((s) => s.id !== id)
+      const interpretations = withoutKey(state.interpretations, id)
       let newActiveId = state.activeSessionId
 
       // If deleting active session, switch to first available or null
@@ -160,6 +185,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       return {
         sessions: newSessions,
         activeSessionId: newActiveId,
+        interpretations,
       }
     })
 
@@ -173,6 +199,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       streamStatus: 'idle',
       streamTarget: null,
       streamError: null,
+      interpretations: {},
     })
     get().saveToStorage()
     // Create a fresh session after clearing
@@ -237,7 +264,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (!messageId) return null
 
     const target = { sessionId, messageId }
-    set({ streamStatus: 'streaming', streamTarget: target, streamError: null })
+    set((state) => ({
+      streamStatus: 'streaming',
+      streamTarget: target,
+      streamError: null,
+      interpretations: withoutKey(state.interpretations, sessionId),
+    }))
     return target
   },
 
@@ -278,6 +310,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       streamError: finalError,
     }))
     get().saveToStorage()
+  },
+
+  setStreamInterpretation: (interpretation) => {
+    const target = get().streamTarget
+    if (!target) return
+    set((state) => ({
+      interpretations: { ...state.interpretations, [target.sessionId]: interpretation },
+    }))
+  },
+
+  // Only removes the card it was scheduled for, not a newer one
+  dismissInterpretation: (sessionId, interpretation) => {
+    if (get().interpretations[sessionId] !== interpretation) return
+    set((state) => ({ interpretations: withoutKey(state.interpretations, sessionId) }))
+  },
+
+  setConnection: (connection) => {
+    if (get().connection !== connection) set({ connection })
   },
 
   loadFromStorage: () => {

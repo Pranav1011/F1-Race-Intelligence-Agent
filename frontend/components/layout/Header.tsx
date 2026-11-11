@@ -1,8 +1,51 @@
 'use client'
 
-import { Menu, PanelRightClose, PanelRightOpen, Radio, Zap } from 'lucide-react'
+import { Loader2, Menu, PanelRightClose, PanelRightOpen, Wifi, WifiOff, Zap } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useUIStore } from '@/stores/ui-store'
+import { ConnectionStatus, useChatStore } from '@/stores/chat-store'
+
+const CONNECTION_BADGE: Record<
+  ConnectionStatus,
+  { label: string; icon: typeof Wifi; className: string; iconClassName: string }
+> = {
+  connected: {
+    label: 'Connected',
+    icon: Wifi,
+    className: 'border-white/5 text-text-secondary',
+    iconClassName: 'text-data-positive',
+  },
+  disconnected: {
+    label: 'Disconnected',
+    icon: WifiOff,
+    className: 'border-data-negative/40 text-data-negative',
+    iconClassName: 'text-data-negative',
+  },
+  unknown: {
+    label: 'Connecting',
+    icon: Loader2,
+    className: 'border-white/5 text-text-muted',
+    iconClassName: 'text-text-muted animate-spin',
+  },
+}
+
+function ConnectionBadge() {
+  const connection = useChatStore((s) => s.connection)
+  const badge = CONNECTION_BADGE[connection]
+  const Icon = badge.icon
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-connection={connection}
+      className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface border ${badge.className}`}
+    >
+      <Icon className={`w-3.5 h-3.5 ${badge.iconClassName}`} aria-hidden="true" />
+      <span className="text-xs font-medium">{badge.label}</span>
+    </div>
+  )
+}
 
 export function Header() {
   const {
@@ -73,15 +116,7 @@ export function Header() {
 
       {/* Right side controls */}
       <div className="relative flex items-center gap-3">
-        {/* Live indicator (decorative) */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface border border-white/5">
-          <motion.div
-            className="w-2 h-2 rounded-full bg-data-positive"
-            animate={{ opacity: [1, 0.4, 1] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          />
-          <span className="text-xs text-text-secondary font-medium">Connected</span>
-        </div>
+        <ConnectionBadge />
 
         {/* Artifact panel toggle */}
         {currentArtifact && (

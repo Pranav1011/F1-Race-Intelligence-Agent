@@ -33,7 +33,10 @@ interface UseWebSocketOptions {
   onDone?: (error: string | null) => void
   // Server sent an error frame (a done frame still follows)
   onError?: (error: string) => void
-  // Socket closed before a done frame arrived (server down, restarted, network)
+  // Socket opened, so the backend is reachable
+  onConnect?: () => void
+  // The message could not be sent, or the socket closed before a done frame
+  // arrived (server down, restarted, network)
   onDisconnect?: () => void
 }
 
@@ -55,6 +58,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     onToolUpdate,
     onDone,
     onError,
+    onConnect,
     onDisconnect,
   } = options
 
@@ -73,7 +77,17 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     (content: string, sessionId: string, userId?: string) => {
       // Replace any previous socket; its late events are ignored as stale
       const previous = wsRef.current
-      const ws = new WebSocket(url)
+      let ws: WebSocket
+      try {
+        ws = new WebSocket(url)
+      } catch (e) {
+        console.error('Failed to open WebSocket:', e)
+        wsRef.current = null
+        previous?.close()
+        setIsConnected(false)
+        onDisconnect?.()
+        return
+      }
       wsRef.current = ws
       previous?.close()
       let doneReceived = false
@@ -81,6 +95,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       ws.onopen = () => {
         if (wsRef.current !== ws) return
         setIsConnected(true)
+        onConnect?.()
 
         const message: WSOutgoingMessage = {
           type: 'message',
@@ -217,7 +232,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
         }
       }
     },
-    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onInterpreted, onToolUpdate, onDone, onError, onDisconnect]
+    [url, onToken, onVisualization, onMetadata, onSessionId, onStatus, onInterpreted, onToolUpdate, onDone, onError, onConnect, onDisconnect]
   )
 
   return {
