@@ -40,10 +40,45 @@ THRESHOLD_BY_QUERY_TYPE = {
 # Default threshold if query type not found
 DEFAULT_THRESHOLD = 0.7
 
+# Values of state["data_outcome"] set by this node
+DATA_OK = "ok"  # Some tool returned usable data
+DATA_RETRY = "retry"  # No usable data yet, looping back to PLAN
+DATA_NONE = "no_data"  # No usable data and no retries left
+
 
 def get_threshold_for_query_type(query_type: AnalysisType) -> float:
     """Get the completeness threshold for a specific query type."""
     return THRESHOLD_BY_QUERY_TYPE.get(query_type, DEFAULT_THRESHOLD)
+
+
+def is_error_result(result: Any) -> bool:
+    """True for a tool result that reports a failure instead of data.
+
+    Tools report failures either as {"error": ...} or as a list whose rows
+    are all {"error": ...}.
+    """
+    if isinstance(result, dict):
+        return bool(result.get("error"))
+    if isinstance(result, list) and result:
+        return all(isinstance(row, dict) and row.get("error") for row in result)
+    return False
+
+
+def is_usable_result(result: Any) -> bool:
+    """True for a tool result that carries data the answer can rest on."""
+    if result is None or is_error_result(result):
+        return False
+    if isinstance(result, dict):
+        # {"rows": []} and similar wrappers around nothing carry no data
+        return any(value not in (None, "", [], {}) for value in result.values())
+    if isinstance(result, (list, str)):
+        return bool(result)
+    return True
+
+
+def count_usable_results(raw_data: dict) -> int:
+    """Number of tool results that returned usable data."""
+    return sum(1 for result in raw_data.values() if is_usable_result(result))
 
 
 async def evaluate_data(state: dict) -> dict[str, Any]:
@@ -75,19 +110,42 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
     # Get adaptive threshold
     threshold = get_threshold_for_query_type(query_type)
 
+    # Zero usable tool data is never sufficient, whatever the score says:
+    # retry while iterations remain, then report no data instead of answering.
+    raw_data = state.get("raw_data", {})
+    has_data = count_usable_results(raw_data) > 0
+    out_of_retries = iteration >= MAX_ITERATIONS
+    if has_data:
+        data_outcome = DATA_OK
+    elif out_of_retries:
+        data_outcome = DATA_NONE
+    else:
+        data_outcome = DATA_RETRY
+
     # Check if we should continue or loop
-    is_sufficient = (
-        processed.completeness_score >= threshold or
-        iteration >= MAX_ITERATIONS
+    is_sufficient = has_data and (
+        processed.completeness_score >= threshold or out_of_retries
     )
+    will_loop = not is_sufficient and not out_of_retries
 
     # Generate feedback if insufficient
     feedback = ""
-    if not is_sufficient:
+    if will_loop:
         feedback = _generate_feedback(processed, iteration)
+        if not has_data:
+            feedback = (
+                f"None of the {len(raw_data)} tool calls returned usable data. "
+                + feedback
+            )
         logger.info(
             f"Evaluation: insufficient (score={processed.completeness_score:.2f}, "
-            f"threshold={threshold:.2f} for {query_type.value}), looping"
+            f"threshold={threshold:.2f} for {query_type.value}, "
+            f"has_usable_data={has_data}), looping"
+        )
+    elif not has_data:
+        logger.warning(
+            f"Evaluation: no usable data from {len(raw_data)} tool calls after "
+            f"{iteration + 1} attempts, stopping without an answer"
         )
     else:
         logger.info(
@@ -97,7 +155,7 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
 
     result = EvaluationResult(
         is_sufficient=is_sufficient,
-        score=processed.completeness_score,
+        score=processed.completeness_score if has_data else 0.0,
         feedback=feedback,
         iteration=iteration,
     )
@@ -114,27 +172,33 @@ async def evaluate_data(state: dict) -> dict[str, Any]:
                 "query_type": query_type.value,
                 "is_sufficient": is_sufficient,
                 "iteration": iteration,
-                "will_loop": not is_sufficient,
+                "will_loop": will_loop,
+                "data_outcome": data_outcome,
             },
         )
 
     return {
         "evaluation": result.model_dump(),
-        "evaluation_feedback": feedback if not is_sufficient else "",
-        "iteration_count": iteration + 1 if not is_sufficient else iteration,
+        "evaluation_feedback": feedback,
+        "iteration_count": iteration + 1 if will_loop else iteration,
+        "data_outcome": data_outcome,
     }
 
 
-def should_continue(state: dict) -> Literal["plan", "generate"]:
+def should_continue(state: dict) -> Literal["plan", "generate", "no_data"]:
     """
-    Router function: Decide whether to loop back to PLAN or continue to GENERATE.
+    Router function: loop back to PLAN, continue to GENERATE, or stop with
+    no data.
 
     Args:
         state: Current agent state
 
     Returns:
-        Next node name ("plan" or "generate")
+        Next node name ("plan", "generate" or "no_data")
     """
+    if state.get("data_outcome") == DATA_NONE:
+        return "no_data"
+
     evaluation = state.get("evaluation", {})
     is_sufficient = evaluation.get("is_sufficient", True)
 

@@ -6,11 +6,13 @@ Handles rate limiting, errors, and automatic failover.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
 from langchain_ollama import ChatOllama
+from ollama import ResponseError as OllamaResponseError
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -24,6 +26,9 @@ from tenacity import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Local Ollama model used when OLLAMA_MODEL is not set
+DEFAULT_OLLAMA_MODEL = "deepseek-r1:8b"
 
 
 class LLMProvider(str, Enum):
@@ -61,7 +66,7 @@ class LLMConfig:
 
     # Ollama (local - can run DeepSeek R1 locally!)
     ollama_base_url: str = "http://ollama:11434"
-    ollama_model: str = "deepseek-r1:8b"  # Best local reasoning model
+    ollama_model: str = DEFAULT_OLLAMA_MODEL  # Overridden by OLLAMA_MODEL
 
     # General settings
     temperature: float = 0.7
@@ -72,6 +77,33 @@ class RateLimitError(Exception):
     """Raised when rate limited by provider."""
 
     pass
+
+
+class ModelNotPulledError(RuntimeError):
+    """Raised when the configured Ollama model is not available locally."""
+
+    MESSAGE = re.compile(r"model \S+ is not pulled; run `ollama pull \S+` or set OLLAMA_MODEL")
+
+    def __init__(self, model: str):
+        super().__init__(
+            f"model {model} is not pulled; run `ollama pull {model}` "
+            "or set OLLAMA_MODEL"
+        )
+        self.model = model
+
+    @classmethod
+    def matches(cls, message: str | None) -> bool:
+        """True when an error message kept in agent state came from this error."""
+        return bool(message) and cls.MESSAGE.fullmatch(message) is not None
+
+
+def _is_missing_ollama_model(error: Exception) -> bool:
+    """True when Ollama rejected the request because the model is not pulled."""
+    return (
+        isinstance(error, OllamaResponseError)
+        and error.status_code == 404
+        and "not found" in str(error.error)
+    )
 
 
 class LLMRouter:
@@ -268,6 +300,11 @@ class LLMRouter:
                 return response
 
             except Exception as e:
+                if provider == LLMProvider.OLLAMA and _is_missing_ollama_model(e):
+                    missing = ModelNotPulledError(self.config.ollama_model)
+                    logger.error(f"Error with {provider.value}: {missing}")
+                    raise missing from e
+
                 error_str = str(e).lower()
 
                 # Check for rate limiting
@@ -314,6 +351,11 @@ class LLMRouter:
                 return response
 
             except Exception as e:
+                if provider == LLMProvider.OLLAMA and _is_missing_ollama_model(e):
+                    missing = ModelNotPulledError(self.config.ollama_model)
+                    logger.error(f"Error with {provider.value}: {missing}")
+                    raise missing from e
+
                 error_str = str(e).lower()
 
                 if "rate" in error_str or "limit" in error_str or "429" in error_str:

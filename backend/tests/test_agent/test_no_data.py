@@ -1,0 +1,215 @@
+"""
+Tests for the no-data path: when no tool returns usable data the agent must
+not generate an answer, and must say which data sources failed.
+
+The real compiled graph runs with the real PROCESS and EVALUATE nodes; the
+LLM-backed nodes and the tools are replaced with scripted fakes, so these
+tests need no LLM, TimescaleDB, Neo4j or Qdrant.
+"""
+
+import pytest
+from ollama import ResponseError as OllamaResponseError
+
+import agent.graph as graph_module
+from agent.graph import F1Agent
+from agent.llm import LLMConfig, LLMProvider, LLMRouter, ModelNotPulledError
+from agent.nodes.evaluate import MAX_ITERATIONS, is_usable_result
+from agent.schemas.query import AnalysisScope, AnalysisType, QueryUnderstanding
+
+REFUSED = "[Errno 61] Connect call failed ('127.0.0.1', 5432)"
+
+PLAN = {
+    "tool_calls": [
+        {"id": "laps_VER", "tool_name": "get_lap_times", "parameters": {}},
+        {"id": "stints", "tool_name": "get_stint_analysis", "parameters": {}},
+        {"id": "reports", "tool_name": "search_race_reports", "parameters": {}},
+    ],
+    "parallel_groups": [["laps_VER", "stints", "reports"]],
+}
+
+ALL_FAILED = {
+    "laps_VER": [{"error": REFUSED, "code": "DATABASE_QUERY_ERROR"}],
+    "stints": {"error": REFUSED, "rows": []},
+    "reports": [{"error": "Connection refused"}],
+}
+
+VER_LAPS = [
+    {"lap_number": n, "lap_time_seconds": 82.0 + n / 10, "compound": "HARD"}
+    for n in range(1, 61)
+]
+
+
+class FakeNodes:
+    """Scripted stand-ins for the LLM nodes and the tool executor."""
+
+    def __init__(self, raw_data: dict, understand_error: str | None = None):
+        self.raw_data = raw_data
+        self.understand_error = understand_error
+        self.plan_calls = 0
+        self.generate_calls = 0
+        self.validate_calls = 0
+
+    async def understand(self, state, llm_router):
+        understanding = QueryUnderstanding(
+            query_type=AnalysisType.STRATEGY,
+            scope=AnalysisScope.FULL_RACE,
+            drivers=["VER", "NOR"],
+            seasons=[2024],
+            races=["Monza"],
+        )
+        update = {"query_understanding": understanding.model_dump()}
+        if self.understand_error:
+            update["error"] = self.understand_error
+        return update
+
+    async def plan(self, state, llm_router):
+        self.plan_calls += 1
+        return {"data_plan": PLAN}
+
+    async def execute(self, state, **tools):
+        return {"raw_data": dict(self.raw_data)}
+
+    async def enrich(self, state):
+        return {"enriched_context": {}}
+
+    async def generate(self, state, llm_router):
+        self.generate_calls += 1
+        return {"analysis_result": "Verstappen ran one stop.", "response_type": "TEXT"}
+
+    async def validate(self, state, llm_router):
+        self.validate_calls += 1
+        return {"validation_result": {"score": 0.9, "issues": []}}
+
+
+@pytest.fixture
+def make_agent(monkeypatch):
+    def build(nodes: FakeNodes) -> F1Agent:
+        monkeypatch.setattr(graph_module, "understand_query", nodes.understand)
+        monkeypatch.setattr(graph_module, "plan_data_retrieval", nodes.plan)
+        monkeypatch.setattr(graph_module, "execute_tools", nodes.execute)
+        monkeypatch.setattr(graph_module, "enrich_context", nodes.enrich)
+        monkeypatch.setattr(graph_module, "generate_response", nodes.generate)
+        monkeypatch.setattr(graph_module, "validate_response", nodes.validate)
+        return F1Agent(enable_memory=False)
+
+    return build
+
+
+async def test_zero_data_skips_generate_and_names_failed_sources(make_agent):
+    nodes = FakeNodes(ALL_FAILED)
+    agent = make_agent(nodes)
+
+    response = await agent.chat(
+        "Compare Verstappen and Norris tyre strategy at Monza 2024", session_id="s1"
+    )
+
+    assert nodes.generate_calls == 0
+    assert nodes.validate_calls == 0
+    assert nodes.plan_calls == MAX_ITERATIONS + 1
+    assert response["message"].startswith("I couldn't reach the race data")
+    assert "the race database (TimescaleDB)" in response["message"]
+    assert "race report search (Qdrant)" in response["message"]
+    assert response["error"] == response["message"]
+    assert response["confidence"] == 0.0
+    assert response["visualization"] is None
+    assert agent.get_session_analysis("s1")["evaluation"]["is_sufficient"] is False
+
+
+async def test_zero_data_reports_an_earlier_model_error_first(make_agent):
+    missing = str(ModelNotPulledError("deepseek-r1:8b"))
+    nodes = FakeNodes(ALL_FAILED, understand_error=missing)
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Who won Monza 2024?", session_id="s1")
+
+    assert nodes.generate_calls == 0
+    assert response["error"].startswith(
+        "Agent error: model deepseek-r1:8b is not pulled; "
+        "run `ollama pull deepseek-r1:8b` or set OLLAMA_MODEL."
+    )
+    assert "I couldn't reach the race data" in response["error"]
+
+
+async def test_zero_data_leaves_out_unrelated_earlier_errors(make_agent):
+    nodes = FakeNodes(ALL_FAILED, understand_error="2 validation errors for QueryUnderstanding")
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Who won Monza 2024?", session_id="s1")
+
+    assert response["error"].startswith("I couldn't reach the race data")
+    assert "QueryUnderstanding" not in response["error"]
+
+
+async def test_empty_results_say_no_data_was_found(make_agent):
+    nodes = FakeNodes({"laps_VER": [], "stints": {"rows": []}, "reports": []})
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Monza 2031 strategy?", session_id="s1")
+
+    assert nodes.generate_calls == 0
+    assert response["message"].startswith("I couldn't find any race data")
+
+
+async def test_partial_data_takes_the_normal_path(make_agent):
+    nodes = FakeNodes({**ALL_FAILED, "laps_VER": VER_LAPS})
+    agent = make_agent(nodes)
+
+    response = await agent.chat("Verstappen strategy at Monza 2024", session_id="s1")
+
+    assert nodes.generate_calls == 1
+    assert nodes.validate_calls == 1
+    assert response["message"] == "Verstappen ran one stop."
+    assert response["error"] is None
+    assert agent._sessions["s1"]["data_outcome"] == "ok"
+
+
+@pytest.mark.parametrize(
+    ("result", "usable"),
+    [
+        (None, False),
+        ([], False),
+        ({}, False),
+        ({"error": REFUSED}, False),
+        ({"error": REFUSED, "rows": []}, False),
+        ([{"error": REFUSED}], False),
+        ([{"error": REFUSED}, {"lap_number": 1}], True),
+        ([{"lap_number": 1}], True),
+        ({"rows": []}, False),
+        ({"rows": [{"lap_number": 1}]}, True),
+        ("race report text", True),
+    ],
+)
+def test_is_usable_result(result, usable):
+    assert is_usable_result(result) is usable
+
+
+class MissingModelOllama:
+    async def ainvoke(self, messages, **kwargs):
+        raise OllamaResponseError("model 'llama-missing:1b' not found", 404)
+
+
+async def test_missing_ollama_model_says_how_to_fix_it(caplog):
+    router = LLMRouter(LLMConfig(ollama_model="llama-missing:1b"))
+    router._providers[LLMProvider.OLLAMA] = MissingModelOllama()
+
+    with pytest.raises(ModelNotPulledError) as raised:
+        await router.ainvoke([])
+
+    expected = (
+        "model llama-missing:1b is not pulled; run `ollama pull llama-missing:1b` "
+        "or set OLLAMA_MODEL"
+    )
+    assert str(raised.value) == expected
+    assert expected in caplog.text
+
+
+def test_ollama_model_comes_from_the_environment(monkeypatch):
+    from api.routers import chat
+
+    monkeypatch.setenv("OLLAMA_MODEL", "llama3.1:8b")
+    monkeypatch.setattr(chat, "_agent", None)
+    monkeypatch.setattr(graph_module, "_agent", None)
+
+    agent = chat.get_chat_agent()
+
+    assert agent.config.ollama_model == "llama3.1:8b"

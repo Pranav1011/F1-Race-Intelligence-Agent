@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Qu
 from pydantic import BaseModel
 
 from agent import F1Agent, get_agent
+from agent.llm import DEFAULT_OLLAMA_MODEL
 from preprocessing import QueryPreprocessor, PreprocessedQuery, QueryHistoryManager, get_history_manager
 from api.streaming import StreamingContext, StreamStage, get_status_message
 
@@ -33,6 +34,7 @@ def get_chat_agent() -> F1Agent:
             groq_api_key=os.getenv("GROQ_API_KEY"),
             google_api_key=os.getenv("GOOGLE_API_KEY"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
+            ollama_model=os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
         )
     return _agent
 

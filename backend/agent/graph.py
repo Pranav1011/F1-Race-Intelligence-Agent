@@ -9,6 +9,7 @@ UNDERSTAND → PLAN → EXECUTE → PROCESS → EVALUATE → ENRICH → GENERATE
                                     [is_sufficient?]
                                     NO → back to PLAN (CRAG pattern)
                                     YES → ENRICH → GENERATE → VALIDATE → END
+                                    NO DATA, retries spent → NO_DATA → END
 
 Nodes:
 - UNDERSTAND: Parse query, extract entities, generate HyDE
@@ -19,6 +20,7 @@ Nodes:
 - ENRICH: Fetch RAG context (race reports, Reddit, regulations)
 - GENERATE: Create response with visualization using enriched context
 - VALIDATE: Verify response quality before returning
+- NO_DATA: Say which data sources failed instead of answering without data
 
 Memory Integration:
 - User context is loaded from Mem0 before UNDERSTAND
@@ -40,7 +42,8 @@ from langgraph.graph import END, StateGraph
 from langchain_core.messages import HumanMessage
 
 from agent.state import EnhancedAgentState, create_initial_state, reset_turn_state
-from agent.llm import LLMRouter, LLMConfig
+from agent.llm import DEFAULT_OLLAMA_MODEL, LLMRouter, LLMConfig, ModelNotPulledError
+from agent.nodes.evaluate import is_error_result
 from agent.nodes import (
     understand_query,
     plan_data_retrieval,
@@ -61,6 +64,13 @@ logger = logging.getLogger(__name__)
 # Upper bound on in-process conversations kept by F1Agent before the least
 # recently used one is dropped.
 DEFAULT_MAX_SESSIONS = 500
+
+# Data source behind each tool, named in the no-data answer
+TOOL_SOURCES: dict[str, str] = {
+    **{t.name: "the race database (TimescaleDB)" for t in TIMESCALE_TOOLS},
+    **{t.name: "the knowledge graph (Neo4j)" for t in NEO4J_TOOLS},
+    **{t.name: "race report search (Qdrant)" for t in VECTOR_TOOLS},
+}
 
 
 def create_enhanced_agent_graph(
@@ -99,6 +109,7 @@ def create_enhanced_agent_graph(
     graph.add_node("enrich", enrich_context)
     graph.add_node("generate", partial(_generate_node, llm_router=llm_router))
     graph.add_node("validate", partial(_validate_node, llm_router=llm_router))
+    graph.add_node("no_data", _no_data_node)
 
     # Set entry point
     graph.set_entry_point("understand")
@@ -112,14 +123,17 @@ def create_enhanced_agent_graph(
     # Add conditional edge from evaluate (CRAG pattern)
     # If data is insufficient, loop back to plan
     # If sufficient, continue to enrich (then generate)
+    # If no tool returned usable data after the retries, never generate
     graph.add_conditional_edges(
         "evaluate",
         should_continue,
         {
             "plan": "plan",      # Loop back for more data
             "generate": "enrich",  # Continue to enrich with RAG context
+            "no_data": "no_data",  # Say what failed instead of answering
         },
     )
+    graph.add_edge("no_data", END)
 
     # Enrich → Generate → Validate → END
     graph.add_edge("enrich", "generate")
@@ -172,6 +186,52 @@ async def _validate_node(
     return await validate_response(state, llm_router)
 
 
+async def _no_data_node(state: EnhancedAgentState) -> dict[str, Any]:
+    """Answer honestly when no tool returned usable data: name what failed."""
+    return describe_missing_data(state)
+
+
+def describe_missing_data(state: dict) -> dict[str, Any]:
+    """Build the no-data answer from the last plan's failed tool calls."""
+    tool_names = {
+        call.get("id"): call.get("tool_name", "")
+        for call in state.get("data_plan", {}).get("tool_calls", [])
+    }
+    failed_sources: list[str] = []
+    for tool_id, result in state.get("raw_data", {}).items():
+        if not is_error_result(result):
+            continue
+        tool_name = tool_names.get(tool_id, tool_id)
+        source = TOOL_SOURCES.get(tool_name, f"the {tool_name} tool")
+        if source not in failed_sources:
+            failed_sources.append(source)
+
+    if failed_sources:
+        answer = (
+            "I couldn't reach the race data, so I can't answer with data right now. "
+            f"Failed: {', '.join(failed_sources)}. "
+            "Check that these services are running, then ask again."
+        )
+    else:
+        answer = (
+            "I couldn't find any race data for this question, so I can't answer "
+            "it with data. Try naming the season, race and drivers."
+        )
+
+    # A missing LLM model is the first thing to fix, so it leads the answer
+    upstream_error = state.get("error")
+    if ModelNotPulledError.matches(upstream_error):
+        answer = f"Agent error: {upstream_error}. {answer}"
+
+    logger.warning(f"No usable data, not generating an answer: {answer}")
+    return {
+        "analysis_result": answer,
+        "visualization_spec": None,
+        "response_type": "TEXT",
+        "error": answer,
+    }
+
+
 # Keep old function name for backwards compatibility
 create_agent_graph = create_enhanced_agent_graph
 
@@ -195,6 +255,7 @@ class F1Agent:
         groq_api_key: str | None = None,
         google_api_key: str | None = None,
         ollama_base_url: str = "http://ollama:11434",
+        ollama_model: str = DEFAULT_OLLAMA_MODEL,
         # Memory configuration
         enable_memory: bool = True,
         qdrant_host: str = "qdrant",
@@ -213,6 +274,7 @@ class F1Agent:
             groq_api_key: Groq API key (fast backup)
             google_api_key: Google API key (backup LLM)
             ollama_base_url: Ollama server URL (local fallback)
+            ollama_model: Ollama model name; it must already be pulled
             enable_memory: Whether to enable memory system
             qdrant_host: Qdrant host for Mem0
             qdrant_port: Qdrant port
@@ -232,6 +294,7 @@ class F1Agent:
             groq_api_key=groq_api_key,
             google_api_key=google_api_key,
             ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model,
         )
         self.graph = create_enhanced_agent_graph(self.config)
         self.max_sessions = max_sessions
@@ -463,6 +526,7 @@ class F1Agent:
                 "enrich": ("enriching", "Adding context, stay focused..."),
                 "generate": ("generating", "Hammer time, composing response..."),
                 "validate": ("validating", "Final sector, P1 in sight..."),
+                "no_data": ("validating", "No data on the timing screens..."),
             }
 
             # Stream through the graph nodes for live status updates
@@ -528,6 +592,8 @@ class F1Agent:
             data_confidence = processed_analysis.get("confidence_score", 0.0)
             # Use the higher confidence (both measure data quality differently)
             final_confidence = max(completeness, data_confidence)
+            if result.get("data_outcome") == "no_data":
+                final_confidence = 0.0
 
             # Build response
             response = {
@@ -610,6 +676,7 @@ def get_agent(
     groq_api_key: str | None = None,
     google_api_key: str | None = None,
     ollama_base_url: str = "http://ollama:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
     enable_memory: bool = True,
     qdrant_host: str = "qdrant",
     redis_host: str = "redis",
@@ -623,6 +690,7 @@ def get_agent(
         groq_api_key: Groq API key (fast backup)
         google_api_key: Google API key
         ollama_base_url: Ollama server URL
+        ollama_model: Ollama model name; it must already be pulled
         enable_memory: Whether to enable memory system
         qdrant_host: Qdrant host for Mem0
         redis_host: Redis host for session state
@@ -638,6 +706,7 @@ def get_agent(
             groq_api_key=groq_api_key,
             google_api_key=google_api_key,
             ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model,
             enable_memory=enable_memory,
             qdrant_host=qdrant_host,
             redis_host=redis_host,
