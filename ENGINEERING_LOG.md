@@ -34,3 +34,29 @@ predates this work).
 context-budget problem, not a feature.
 The fix cut the surface 90% and schema cost 85%, with a coverage test proving
 nothing was lost.
+
+## 2026-11-11 — Product-readiness pass (entity matching, defaults, UI)
+**Goal:** a fresh clone should run, the example prompts should be understood correctly,
+and every README claim should match what runs.
+
+**Changes and why:**
+- **Entity matching precision.** The built-in prompts produced "Understood as: Zhou
+  Guanyu, Liam Lawson, Oscar Piastri" ("Who", "lap", "pit", "at" and "of" matched names),
+  and those entities reached the agent. Added a stopword list, a 4-character minimum for
+  typo matching, and a 0.85 similarity floor (1 - edits / length). Only real typo fixes
+  are shown as corrections. A question with no year now means 2024, the last ingested
+  season. 20 tests pin it, including all four example prompts.
+- **Entity data committed.** `backend/data/{drivers,teams,circuits}.json` were ignored
+  with the rest of `data/`, so a fresh clone loaded 0 drivers.
+- **One default model.** `make setup` pulled llama3.2 while the code defaulted to
+  deepseek-r1:8b. Everything now says llama3.1:8b (tested model); outside Docker the
+  Ollama URL defaults to localhost.
+- **Dead LLM named as the cause.** With every provider down, the no-data reply blamed
+  Qdrant; it now says the language model was unreachable and how to fix it.
+- **UI:** generic decoration removed from the empty state, AA text contrast, reduced
+  motion, mobile drawer closed by default, a reason shown when sending is paused.
+
+**Not done:** binding the 8 consolidated tools at runtime (the agent still binds 92);
+the README now says so.
+
+**Result:** backend 110 → 135 passing (+ the known DB-dependent `test_health_check`).
