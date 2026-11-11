@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 # Current F1 season
 CURRENT_YEAR = datetime.now().year
 
+# Last season the ingestion pipeline covers (2018-2024). A question that names
+# no year is read as this season, not the calendar year, which has no data.
+LATEST_DATA_SEASON = 2024
+
 
 @dataclass
 class ExpandedQuery:
@@ -195,9 +199,8 @@ class QueryExpander:
             years_ago = int(ago_match.group(1))
             return CURRENT_YEAR - years_ago
 
-        # Default to current year if no year specified
-        # (for recent/current season queries)
-        return CURRENT_YEAR
+        # No year given: use the latest season that has data
+        return LATEST_DATA_SEASON
 
     def _extract_race_circuit(self, query: str) -> str | None:
         """Extract circuit from race/GP mentions."""
@@ -263,7 +266,8 @@ class QueryExpander:
                     circuit_names.append(match.matched)
                 else:
                     circuit_names.append(circuit_id)
-            parts.append(f"at {', '.join(circuit_names)}")
+            circuit_text = ", ".join(circuit_names)
+            parts.append(f"at {circuit_text}" if parts else circuit_text)
 
         if year:
             parts.append(str(year))

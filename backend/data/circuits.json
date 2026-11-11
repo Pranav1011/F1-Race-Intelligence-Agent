@@ -1,0 +1,220 @@
+{
+  "circuits": [
+    {
+      "id": "bahrain",
+      "full_name": "Bahrain International Circuit",
+      "short_name": "Bahrain",
+      "aliases": ["bahrain", "sakhir", "bahrain gp"],
+      "country": "Bahrain",
+      "city": "Sakhir",
+      "type": "permanent"
+    },
+    {
+      "id": "jeddah",
+      "full_name": "Jeddah Corniche Circuit",
+      "short_name": "Saudi Arabia",
+      "aliases": ["jeddah", "saudi", "saudi arabia", "saudi arabian gp", "corniche"],
+      "country": "Saudi Arabia",
+      "city": "Jeddah",
+      "type": "street"
+    },
+    {
+      "id": "albert_park",
+      "full_name": "Albert Park Circuit",
+      "short_name": "Australia",
+      "aliases": ["australia", "melbourne", "albert park", "australian gp"],
+      "country": "Australia",
+      "city": "Melbourne",
+      "type": "street"
+    },
+    {
+      "id": "suzuka",
+      "full_name": "Suzuka International Racing Course",
+      "short_name": "Japan",
+      "aliases": ["japan", "suzuka", "japanese gp"],
+      "country": "Japan",
+      "city": "Suzuka",
+      "type": "permanent"
+    },
+    {
+      "id": "shanghai",
+      "full_name": "Shanghai International Circuit",
+      "short_name": "China",
+      "aliases": ["china", "shanghai", "chinese gp"],
+      "country": "China",
+      "city": "Shanghai",
+      "type": "permanent"
+    },
+    {
+      "id": "miami",
+      "full_name": "Miami International Autodrome",
+      "short_name": "Miami",
+      "aliases": ["miami", "miami gp", "hard rock"],
+      "country": "USA",
+      "city": "Miami",
+      "type": "street"
+    },
+    {
+      "id": "imola",
+      "full_name": "Autodromo Enzo e Dino Ferrari",
+      "short_name": "Imola",
+      "aliases": ["imola", "emilia romagna", "san marino"],
+      "country": "Italy",
+      "city": "Imola",
+      "type": "permanent"
+    },
+    {
+      "id": "monaco",
+      "full_name": "Circuit de Monaco",
+      "short_name": "Monaco",
+      "aliases": ["monaco", "monte carlo", "monaco gp"],
+      "country": "Monaco",
+      "city": "Monte Carlo",
+      "type": "street"
+    },
+    {
+      "id": "montreal",
+      "full_name": "Circuit Gilles Villeneuve",
+      "short_name": "Canada",
+      "aliases": ["canada", "montreal", "canadian gp", "gilles villeneuve"],
+      "country": "Canada",
+      "city": "Montreal",
+      "type": "street"
+    },
+    {
+      "id": "barcelona",
+      "full_name": "Circuit de Barcelona-Catalunya",
+      "short_name": "Spain",
+      "aliases": ["spain", "barcelona", "spanish gp", "catalunya", "catalonia"],
+      "country": "Spain",
+      "city": "Barcelona",
+      "type": "permanent"
+    },
+    {
+      "id": "red_bull_ring",
+      "full_name": "Red Bull Ring",
+      "short_name": "Austria",
+      "aliases": ["austria", "spielberg", "austrian gp", "red bull ring", "a1 ring"],
+      "country": "Austria",
+      "city": "Spielberg",
+      "type": "permanent"
+    },
+    {
+      "id": "silverstone",
+      "full_name": "Silverstone Circuit",
+      "short_name": "Great Britain",
+      "aliases": ["silverstone", "british gp", "great britain", "uk", "britain"],
+      "country": "United Kingdom",
+      "city": "Silverstone",
+      "type": "permanent"
+    },
+    {
+      "id": "hungaroring",
+      "full_name": "Hungaroring",
+      "short_name": "Hungary",
+      "aliases": ["hungary", "hungaroring", "hungarian gp", "budapest"],
+      "country": "Hungary",
+      "city": "Budapest",
+      "type": "permanent"
+    },
+    {
+      "id": "spa",
+      "full_name": "Circuit de Spa-Francorchamps",
+      "short_name": "Belgium",
+      "aliases": ["spa", "belgium", "belgian gp", "spa francorchamps", "francorchamps"],
+      "country": "Belgium",
+      "city": "Stavelot",
+      "type": "permanent"
+    },
+    {
+      "id": "zandvoort",
+      "full_name": "Circuit Zandvoort",
+      "short_name": "Netherlands",
+      "aliases": ["zandvoort", "netherlands", "dutch gp", "holland"],
+      "country": "Netherlands",
+      "city": "Zandvoort",
+      "type": "permanent"
+    },
+    {
+      "id": "monza",
+      "full_name": "Autodromo Nazionale Monza",
+      "short_name": "Italy",
+      "aliases": ["monza", "italy", "italian gp", "temple of speed"],
+      "country": "Italy",
+      "city": "Monza",
+      "type": "permanent"
+    },
+    {
+      "id": "baku",
+      "full_name": "Baku City Circuit",
+      "short_name": "Azerbaijan",
+      "aliases": ["baku", "azerbaijan", "azerbaijani gp"],
+      "country": "Azerbaijan",
+      "city": "Baku",
+      "type": "street"
+    },
+    {
+      "id": "marina_bay",
+      "full_name": "Marina Bay Street Circuit",
+      "short_name": "Singapore",
+      "aliases": ["singapore", "marina bay", "singapore gp"],
+      "country": "Singapore",
+      "city": "Singapore",
+      "type": "street"
+    },
+    {
+      "id": "cota",
+      "full_name": "Circuit of the Americas",
+      "short_name": "USA",
+      "aliases": ["austin", "cota", "usa", "us gp", "united states gp", "americas"],
+      "country": "USA",
+      "city": "Austin",
+      "type": "permanent"
+    },
+    {
+      "id": "mexico",
+      "full_name": "Autodromo Hermanos Rodriguez",
+      "short_name": "Mexico",
+      "aliases": ["mexico", "mexican gp", "hermanos rodriguez", "mexico city"],
+      "country": "Mexico",
+      "city": "Mexico City",
+      "type": "permanent"
+    },
+    {
+      "id": "interlagos",
+      "full_name": "Autodromo Jose Carlos Pace",
+      "short_name": "Brazil",
+      "aliases": ["brazil", "interlagos", "brazilian gp", "sao paulo"],
+      "country": "Brazil",
+      "city": "Sao Paulo",
+      "type": "permanent"
+    },
+    {
+      "id": "las_vegas",
+      "full_name": "Las Vegas Strip Circuit",
+      "short_name": "Las Vegas",
+      "aliases": ["las vegas", "vegas", "las vegas gp"],
+      "country": "USA",
+      "city": "Las Vegas",
+      "type": "street"
+    },
+    {
+      "id": "losail",
+      "full_name": "Losail International Circuit",
+      "short_name": "Qatar",
+      "aliases": ["qatar", "losail", "qatari gp"],
+      "country": "Qatar",
+      "city": "Lusail",
+      "type": "permanent"
+    },
+    {
+      "id": "yas_marina",
+      "full_name": "Yas Marina Circuit",
+      "short_name": "Abu Dhabi",
+      "aliases": ["abu dhabi", "yas marina", "abu dhabi gp", "yas island"],
+      "country": "UAE",
+      "city": "Abu Dhabi",
+      "type": "permanent"
+    }
+  ]
+}

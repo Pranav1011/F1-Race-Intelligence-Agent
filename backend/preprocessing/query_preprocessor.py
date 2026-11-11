@@ -114,7 +114,9 @@ class QueryPreprocessor:
         # Track corrections made
         corrections = []
         for entity in entities:
-            if entity.original.lower() != entity.matched.lower():
+            # Only typo fixes count as corrections; resolving an exact name
+            # or alias ("Verstappen" -> "Max Verstappen") is not one.
+            if entity.confidence < 1.0:
                 corrections.append({
                     "original": entity.original,
                     "corrected": entity.matched,
@@ -187,7 +189,7 @@ class QueryPreprocessor:
         corrections = []
 
         for entity in entities:
-            if entity.original.lower() != entity.matched.lower():
+            if entity.confidence < 1.0:
                 # Replace with matched (corrected) form
                 result = result.replace(entity.original, entity.matched)
                 corrections.append({

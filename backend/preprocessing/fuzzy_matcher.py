@@ -16,6 +16,32 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
+# Fuzzy (typo-tolerant) matching only applies to tokens at least this long.
+# Shorter tokens must match a name or alias exactly.
+MIN_FUZZY_LENGTH = 4
+
+# A fuzzy match is kept only when the token is at least this similar to the
+# name (1 - edit_distance / longer_length). "verstapen" -> 0.9, "hamiltn" ->
+# 0.875; "pit" -> "piastri" or "who" -> "zhou" never get close.
+MIN_FUZZY_SIMILARITY = 0.85
+
+# Ordinary English and racing words that are never entity mentions, even when
+# they collide with a short alias ("at" is an AlphaTauri alias, "am" an Aston
+# Martin one) or sit one edit away from a driver code or name.
+STOPWORDS = frozenset({
+    "a", "about", "after", "against", "all", "am", "an", "and", "any", "are",
+    "as", "at", "be", "before", "best", "between", "by", "can", "car", "cars",
+    "compare", "did", "do", "does", "during", "each", "fast", "fastest",
+    "for", "from", "gap", "get", "give", "had", "has", "have", "how", "i",
+    "if", "in", "into", "is", "it", "its", "lap", "laps", "last", "me", "most",
+    "my", "of", "on", "or", "out", "over", "pace", "pit", "pits", "race",
+    "races", "s", "show", "slow", "so", "stint", "stop", "stops", "than",
+    "that", "the", "their", "them", "then", "there", "they", "this", "time",
+    "times", "to", "top", "tyre", "tyres", "tire", "tires", "up", "us", "vs",
+    "was", "were", "what", "when", "where", "which", "who", "why", "will",
+    "win", "with", "won", "would", "year", "you",
+})
+
 
 @dataclass
 class MatchResult:
@@ -46,6 +72,14 @@ def levenshtein_distance(s1: str, s2: str) -> int:
         previous_row = current_row
 
     return previous_row[-1]
+
+
+def similarity(s1: str, s2: str) -> float:
+    """Edit-distance similarity in [0, 1], normalised by the longer string."""
+    longest = max(len(s1), len(s2))
+    if longest == 0:
+        return 1.0
+    return 1.0 - levenshtein_distance(s1, s2) / longest
 
 
 class FuzzyMatcher:
@@ -145,6 +179,32 @@ class FuzzyMatcher:
             for alias in circuit.get("aliases", []):
                 self.circuit_index[alias.lower()] = circuit
 
+    @staticmethod
+    def _fuzzy_lookup(
+        text_lower: str, index: dict[str, dict], max_distance: int
+    ) -> tuple[dict | None, float]:
+        """Closest index entry within max_distance edits and the similarity floor."""
+        if len(text_lower) < MIN_FUZZY_LENGTH or text_lower in STOPWORDS:
+            return None, 0.0
+
+        best_match = None
+        best_distance = max_distance + 1
+        best_score = 0.0
+        for key, entry in index.items():
+            if not key:
+                continue
+            distance = levenshtein_distance(text_lower, key)
+            if distance > max_distance:
+                continue
+            score = similarity(text_lower, key)
+            if score < MIN_FUZZY_SIMILARITY:
+                continue
+            if distance < best_distance or (distance == best_distance and score > best_score):
+                best_distance = distance
+                best_score = score
+                best_match = entry
+        return best_match, best_score
+
     def match_driver(self, text: str, max_distance: int = 2) -> MatchResult | None:
         """
         Match text to a driver.
@@ -183,18 +243,11 @@ class FuzzyMatcher:
                     )
 
         # Fuzzy match
-        best_match = None
-        best_distance = max_distance + 1
-
-        for key, driver in self.driver_index.items():
-            distance = levenshtein_distance(text_lower, key)
-            if distance <= max_distance and distance < best_distance:
-                best_distance = distance
-                best_match = driver
+        best_match, confidence = self._fuzzy_lookup(
+            text_lower, self.driver_index, max_distance
+        )
 
         if best_match:
-            # Confidence decreases with distance
-            confidence = 1.0 - (best_distance / (max_distance + 1))
             return MatchResult(
                 original=text,
                 matched=best_match.get("full_name", ""),
@@ -230,17 +283,11 @@ class FuzzyMatcher:
             )
 
         # Fuzzy match
-        best_match = None
-        best_distance = max_distance + 1
-
-        for key, team in self.team_index.items():
-            distance = levenshtein_distance(text_lower, key)
-            if distance <= max_distance and distance < best_distance:
-                best_distance = distance
-                best_match = team
+        best_match, confidence = self._fuzzy_lookup(
+            text_lower, self.team_index, max_distance
+        )
 
         if best_match:
-            confidence = 1.0 - (best_distance / (max_distance + 1))
             return MatchResult(
                 original=text,
                 matched=best_match.get("short_name", best_match.get("full_name", "")),
@@ -276,17 +323,11 @@ class FuzzyMatcher:
             )
 
         # Fuzzy match
-        best_match = None
-        best_distance = max_distance + 1
-
-        for key, circuit in self.circuit_index.items():
-            distance = levenshtein_distance(text_lower, key)
-            if distance <= max_distance and distance < best_distance:
-                best_distance = distance
-                best_match = circuit
+        best_match, confidence = self._fuzzy_lookup(
+            text_lower, self.circuit_index, max_distance
+        )
 
         if best_match:
-            confidence = 1.0 - (best_distance / (max_distance + 1))
             return MatchResult(
                 original=text,
                 matched=best_match.get("short_name", best_match.get("full_name", "")),
@@ -350,8 +391,10 @@ class FuzzyMatcher:
         # Try pairs first (longer matches)
         matched_indices = set()
         for i, pair in enumerate(word_pairs):
+            if words[i].lower() in STOPWORDS or words[i + 1].lower() in STOPWORDS:
+                continue
             result = self.match_any(pair, max_distance=1)
-            if result and result.confidence >= 0.8:
+            if result and result.confidence >= MIN_FUZZY_SIMILARITY:
                 results.append(result)
                 matched_indices.add(i)
                 matched_indices.add(i + 1)
@@ -360,10 +403,10 @@ class FuzzyMatcher:
         for i, word in enumerate(words):
             if i in matched_indices:
                 continue
-            if len(word) < 2:
+            if len(word) < 2 or word.lower() in STOPWORDS:
                 continue
             result = self.match_any(word, max_distance=2)
-            if result and result.confidence >= 0.6:
+            if result and result.confidence >= MIN_FUZZY_SIMILARITY:
                 results.append(result)
 
         # Deduplicate by canonical form

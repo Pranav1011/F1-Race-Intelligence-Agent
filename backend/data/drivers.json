@@ -1,0 +1,272 @@
+{
+  "drivers": [
+    {
+      "code": "VER",
+      "full_name": "Max Verstappen",
+      "first_name": "Max",
+      "last_name": "Verstappen",
+      "aliases": ["max", "verstappen", "mad max", "super max"],
+      "number": 1,
+      "team": "Red Bull Racing",
+      "nationality": "Dutch"
+    },
+    {
+      "code": "PER",
+      "full_name": "Sergio Perez",
+      "first_name": "Sergio",
+      "last_name": "Perez",
+      "aliases": ["checo", "perez", "sergio"],
+      "number": 11,
+      "team": "Red Bull Racing",
+      "nationality": "Mexican"
+    },
+    {
+      "code": "HAM",
+      "full_name": "Lewis Hamilton",
+      "first_name": "Lewis",
+      "last_name": "Hamilton",
+      "aliases": ["lewis", "hamilton", "hammy", "lh44"],
+      "number": 44,
+      "team": "Mercedes",
+      "nationality": "British"
+    },
+    {
+      "code": "RUS",
+      "full_name": "George Russell",
+      "first_name": "George",
+      "last_name": "Russell",
+      "aliases": ["george", "russell", "mr saturday"],
+      "number": 63,
+      "team": "Mercedes",
+      "nationality": "British"
+    },
+    {
+      "code": "LEC",
+      "full_name": "Charles Leclerc",
+      "first_name": "Charles",
+      "last_name": "Leclerc",
+      "aliases": ["charles", "leclerc", "sharl", "il predestinato"],
+      "number": 16,
+      "team": "Ferrari",
+      "nationality": "Monegasque"
+    },
+    {
+      "code": "SAI",
+      "full_name": "Carlos Sainz",
+      "first_name": "Carlos",
+      "last_name": "Sainz",
+      "aliases": ["carlos", "sainz", "smooth operator", "sainz jr"],
+      "number": 55,
+      "team": "Ferrari",
+      "nationality": "Spanish"
+    },
+    {
+      "code": "NOR",
+      "full_name": "Lando Norris",
+      "first_name": "Lando",
+      "last_name": "Norris",
+      "aliases": ["lando", "norris", "ln4"],
+      "number": 4,
+      "team": "McLaren",
+      "nationality": "British"
+    },
+    {
+      "code": "PIA",
+      "full_name": "Oscar Piastri",
+      "first_name": "Oscar",
+      "last_name": "Piastri",
+      "aliases": ["oscar", "piastri"],
+      "number": 81,
+      "team": "McLaren",
+      "nationality": "Australian"
+    },
+    {
+      "code": "ALO",
+      "full_name": "Fernando Alonso",
+      "first_name": "Fernando",
+      "last_name": "Alonso",
+      "aliases": ["fernando", "alonso", "nando", "el nano", "magic alonso"],
+      "number": 14,
+      "team": "Aston Martin",
+      "nationality": "Spanish"
+    },
+    {
+      "code": "STR",
+      "full_name": "Lance Stroll",
+      "first_name": "Lance",
+      "last_name": "Stroll",
+      "aliases": ["lance", "stroll"],
+      "number": 18,
+      "team": "Aston Martin",
+      "nationality": "Canadian"
+    },
+    {
+      "code": "OCO",
+      "full_name": "Esteban Ocon",
+      "first_name": "Esteban",
+      "last_name": "Ocon",
+      "aliases": ["esteban", "ocon"],
+      "number": 31,
+      "team": "Alpine",
+      "nationality": "French"
+    },
+    {
+      "code": "GAS",
+      "full_name": "Pierre Gasly",
+      "first_name": "Pierre",
+      "last_name": "Gasly",
+      "aliases": ["pierre", "gasly"],
+      "number": 10,
+      "team": "Alpine",
+      "nationality": "French"
+    },
+    {
+      "code": "ALB",
+      "full_name": "Alexander Albon",
+      "first_name": "Alexander",
+      "last_name": "Albon",
+      "aliases": ["alex", "albon", "albono"],
+      "number": 23,
+      "team": "Williams",
+      "nationality": "Thai"
+    },
+    {
+      "code": "SAR",
+      "full_name": "Logan Sargeant",
+      "first_name": "Logan",
+      "last_name": "Sargeant",
+      "aliases": ["logan", "sargeant"],
+      "number": 2,
+      "team": "Williams",
+      "nationality": "American"
+    },
+    {
+      "code": "BOT",
+      "full_name": "Valtteri Bottas",
+      "first_name": "Valtteri",
+      "last_name": "Bottas",
+      "aliases": ["valtteri", "bottas", "robottas"],
+      "number": 77,
+      "team": "Kick Sauber",
+      "nationality": "Finnish"
+    },
+    {
+      "code": "ZHO",
+      "full_name": "Zhou Guanyu",
+      "first_name": "Guanyu",
+      "last_name": "Zhou",
+      "aliases": ["zhou", "guanyu"],
+      "number": 24,
+      "team": "Kick Sauber",
+      "nationality": "Chinese"
+    },
+    {
+      "code": "MAG",
+      "full_name": "Kevin Magnussen",
+      "first_name": "Kevin",
+      "last_name": "Magnussen",
+      "aliases": ["kevin", "magnussen", "kmag"],
+      "number": 20,
+      "team": "Haas",
+      "nationality": "Danish"
+    },
+    {
+      "code": "HUL",
+      "full_name": "Nico Hulkenberg",
+      "first_name": "Nico",
+      "last_name": "Hulkenberg",
+      "aliases": ["nico", "hulkenberg", "hulk"],
+      "number": 27,
+      "team": "Haas",
+      "nationality": "German"
+    },
+    {
+      "code": "TSU",
+      "full_name": "Yuki Tsunoda",
+      "first_name": "Yuki",
+      "last_name": "Tsunoda",
+      "aliases": ["yuki", "tsunoda"],
+      "number": 22,
+      "team": "RB",
+      "nationality": "Japanese"
+    },
+    {
+      "code": "RIC",
+      "full_name": "Daniel Ricciardo",
+      "first_name": "Daniel",
+      "last_name": "Ricciardo",
+      "aliases": ["daniel", "ricciardo", "danny ric", "honey badger"],
+      "number": 3,
+      "team": "RB",
+      "nationality": "Australian"
+    },
+    {
+      "code": "LAW",
+      "full_name": "Liam Lawson",
+      "first_name": "Liam",
+      "last_name": "Lawson",
+      "aliases": ["liam", "lawson"],
+      "number": 30,
+      "team": "RB",
+      "nationality": "New Zealand"
+    },
+    {
+      "code": "BEA",
+      "full_name": "Oliver Bearman",
+      "first_name": "Oliver",
+      "last_name": "Bearman",
+      "aliases": ["oliver", "bearman", "ollie"],
+      "number": 38,
+      "team": "Ferrari",
+      "nationality": "British"
+    },
+    {
+      "code": "COL",
+      "full_name": "Franco Colapinto",
+      "first_name": "Franco",
+      "last_name": "Colapinto",
+      "aliases": ["franco", "colapinto"],
+      "number": 43,
+      "team": "Williams",
+      "nationality": "Argentine"
+    }
+  ],
+  "historic_drivers": [
+    {
+      "code": "VET",
+      "full_name": "Sebastian Vettel",
+      "aliases": ["seb", "vettel", "sebastian"],
+      "number": 5
+    },
+    {
+      "code": "RAI",
+      "full_name": "Kimi Raikkonen",
+      "aliases": ["kimi", "raikkonen", "iceman"],
+      "number": 7
+    },
+    {
+      "code": "SCH",
+      "full_name": "Michael Schumacher",
+      "aliases": ["michael", "schumacher", "schumi"],
+      "number": 1
+    },
+    {
+      "code": "MSC",
+      "full_name": "Mick Schumacher",
+      "aliases": ["mick", "schumacher jr"],
+      "number": 47
+    },
+    {
+      "code": "LAT",
+      "full_name": "Nicholas Latifi",
+      "aliases": ["nicholas", "latifi", "goatifi"],
+      "number": 6
+    },
+    {
+      "code": "DEV",
+      "full_name": "Nyck de Vries",
+      "aliases": ["nyck", "de vries"],
+      "number": 21
+    }
+  ]
+}

@@ -84,6 +84,12 @@ Thumbs.db
 
 # Data files (too large for git)
 data/
+# ...except the small entity lists the query preprocessor needs
+!backend/data/
+backend/data/*
+!backend/data/drivers.json
+!backend/data/teams.json
+!backend/data/circuits.json
 *.parquet
 *.csv
 

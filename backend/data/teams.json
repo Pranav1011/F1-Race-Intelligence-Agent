@@ -1,0 +1,116 @@
+{
+  "teams": [
+    {
+      "id": "red_bull",
+      "full_name": "Oracle Red Bull Racing",
+      "short_name": "Red Bull Racing",
+      "aliases": ["red bull", "redbull", "rb racing", "rbr", "red bull racing"],
+      "color": "#3671C6",
+      "constructors_id": "red_bull"
+    },
+    {
+      "id": "mercedes",
+      "full_name": "Mercedes-AMG PETRONAS F1 Team",
+      "short_name": "Mercedes",
+      "aliases": ["mercedes", "merc", "mercs", "amg", "petronas", "silver arrows"],
+      "color": "#27F4D2",
+      "constructors_id": "mercedes"
+    },
+    {
+      "id": "ferrari",
+      "full_name": "Scuderia Ferrari",
+      "short_name": "Ferrari",
+      "aliases": ["ferrari", "scuderia", "sf", "prancing horse", "tifosi"],
+      "color": "#E80020",
+      "constructors_id": "ferrari"
+    },
+    {
+      "id": "mclaren",
+      "full_name": "McLaren F1 Team",
+      "short_name": "McLaren",
+      "aliases": ["mclaren", "mcl", "papaya", "woking"],
+      "color": "#FF8000",
+      "constructors_id": "mclaren"
+    },
+    {
+      "id": "aston_martin",
+      "full_name": "Aston Martin Aramco F1 Team",
+      "short_name": "Aston Martin",
+      "aliases": ["aston martin", "aston", "am", "amf1", "aramco"],
+      "color": "#229971",
+      "constructors_id": "aston_martin"
+    },
+    {
+      "id": "alpine",
+      "full_name": "BWT Alpine F1 Team",
+      "short_name": "Alpine",
+      "aliases": ["alpine", "bwt", "enstone", "renault"],
+      "color": "#FF87BC",
+      "constructors_id": "alpine"
+    },
+    {
+      "id": "williams",
+      "full_name": "Williams Racing",
+      "short_name": "Williams",
+      "aliases": ["williams", "grove"],
+      "color": "#64C4FF",
+      "constructors_id": "williams"
+    },
+    {
+      "id": "sauber",
+      "full_name": "Stake F1 Team Kick Sauber",
+      "short_name": "Kick Sauber",
+      "aliases": ["sauber", "kick sauber", "alfa romeo", "stake", "hinwil"],
+      "color": "#52E252",
+      "constructors_id": "sauber"
+    },
+    {
+      "id": "haas",
+      "full_name": "MoneyGram Haas F1 Team",
+      "short_name": "Haas",
+      "aliases": ["haas", "moneygram", "haas f1"],
+      "color": "#B6BABD",
+      "constructors_id": "haas"
+    },
+    {
+      "id": "rb",
+      "full_name": "Visa Cash App RB F1 Team",
+      "short_name": "RB",
+      "aliases": ["rb", "racing bulls", "visa cash app", "alpha tauri", "alphatauri", "toro rosso", "vcarb", "faenza"],
+      "color": "#6692FF",
+      "constructors_id": "rb"
+    }
+  ],
+  "historic_teams": [
+    {
+      "id": "alpha_tauri",
+      "full_name": "Scuderia AlphaTauri",
+      "aliases": ["alpha tauri", "alphatauri", "at"]
+    },
+    {
+      "id": "toro_rosso",
+      "full_name": "Scuderia Toro Rosso",
+      "aliases": ["toro rosso", "str"]
+    },
+    {
+      "id": "racing_point",
+      "full_name": "Racing Point F1 Team",
+      "aliases": ["racing point", "rp"]
+    },
+    {
+      "id": "force_india",
+      "full_name": "Force India",
+      "aliases": ["force india", "fi"]
+    },
+    {
+      "id": "renault",
+      "full_name": "Renault F1 Team",
+      "aliases": ["renault"]
+    },
+    {
+      "id": "alfa_romeo",
+      "full_name": "Alfa Romeo Racing",
+      "aliases": ["alfa romeo", "alfa"]
+    }
+  ]
+}
